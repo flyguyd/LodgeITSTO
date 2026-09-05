@@ -1,0 +1,15 @@
+/* The STO portal (Dave, 2026-09-05): the Lodge Ops organic theme (styles.scss
+   is loaded first) with a PINNED COMMAND BAR along the top instead of the
+   staff rail. Everything below the bar is inset by its height. */
+:root {
+  --sto-bar-h: 60px;
+}
+body {
+  background: var(--oa-bg);
+  color: var(--oa-text);
+  margin: 0;
+}
+.sto-main {
+  padding-top: var(--sto-bar-h);
+  min-height: 100vh;
+}

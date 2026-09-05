@@ -1,0 +1,291 @@
+/* Copied from Lodge Ops (frontend/src/styles.scss) when the STO portal became its own
+   repo (2026-09-05) — the same Organic palette and the oa-* vocabulary the portal's
+   pages use. Keep in step by hand; the portal must build without Lodge Ops. */
+/* ---- Lodge Ops global styles ----
+   The palette is "Organic": a warm sand ground under cream cards, warm ink
+   text, sage as the interactive colour and gold as the highlight. Every colour
+   in the app comes from these tokens or from the same warm vocabulary — the
+   old GitHub-dark scheme is gone.
+
+   The Figtree webfont is linked from index.html, NOT @import-ed here, and that
+   is deliberate. Angular's inlineCritical optimisation ships this stylesheet
+   as <link media="print" onload="this.media='all'">; an @import inside it
+   makes the sheet's load event wait on fonts.googleapis.com, so if Google is
+   slow or unreachable the onload never fires and the ENTIRE app renders
+   unstyled. Keeping the font on its own link means a blocked font costs the
+   typeface and nothing else. */
+:root {
+  /* ---- Ground and surfaces ---------------------------------------------
+     Note the relationship is the opposite way round from a dark theme: the
+     PAGE is the darker sand and cards sit LIGHTER on top of it. That is the
+     signature of the design — cream sheets laid on a sand desk — so anything
+     building a surface should reach for these rather than lightening the
+     page by hand. */
+  --oa-bg: #e7dabc;
+  --oa-surface: #f3ead6;
+  --oa-surface-2: #fbf6ea;
+  --oa-page-bg: #e7dabc;
+  --oa-border: #cfc0a0;
+  --oa-border-strong: #b9a87f;
+  --oa-text: #26221a;
+  --oa-text-dim: #665e52;
+
+  /* ---- Meaning ----------------------------------------------------------
+     Each of these clears 4.5:1 against BOTH the sand ground and the cream
+     card, so any of them is safe as text anywhere in the app, and white on
+     any of them clears 6:1 for the fill-with-light-label pattern. */
+  --oa-accent: #53663a;
+  --oa-accent-strong: #3f4e2c;
+  --oa-danger: #9e4029;
+  --oa-success: #3b6640;
+  --oa-warn: #7f5c12;
+  --oa-warning: #7f5c12;
+
+  --oa-radius: 12px;
+  --oa-shadow: 0 10px 30px rgba(78, 64, 36, 0.16);
+
+  /* ---- Card theme -------------------------------------------------------
+     The panel look the dashboard cards use: a cream sheet with a soft warm
+     light falling across the top-right corner, a sand hairline and a wide
+     low shadow, so a card reads as paper laid on the ground rather than a
+     flat box. Kept as tokens so other pages adopt the treatment by
+     referencing them rather than re-deriving the colours. */
+  --oa-card-bg:
+    radial-gradient(130% 105% at 100% 0%, rgba(255, 252, 244, 0.85), transparent 58%),
+    linear-gradient(215deg, #f8f0dd 0%, #f3ead6 48%, #eee3cb 100%);
+  --oa-card-border: rgba(90, 74, 40, 0.16);
+  --oa-card-border-hover: rgba(83, 102, 58, 0.55);
+  --oa-card-radius: 14px;
+  --oa-card-shadow:
+    0 1px 2px rgba(80, 66, 38, 0.1),
+    0 10px 26px rgba(80, 66, 38, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --oa-card-shadow-hover:
+    0 2px 4px rgba(80, 66, 38, 0.12),
+    0 16px 34px rgba(80, 66, 38, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  /* A nested panel INSIDE a card (a list row, a stat block): a warmer sand
+     that sits BACK from the cream sheet without needing a shadow of its own.
+     On a light theme a nested panel recedes rather than lifts. */
+  --oa-inset-bg: linear-gradient(180deg, #eee3c8 0%, #e9debf 100%);
+  --oa-inset-border: rgba(83, 102, 58, 0.2);
+  --oa-inset-border-hover: rgba(83, 102, 58, 0.55);
+  --oa-inset-radius: 11px;
+
+  /* ---- Command bar ------------------------------------------------------
+     The bar is a fixed vertical rail down the left of every authenticated
+     page. Its width is a token because the app shell offsets the whole page
+     by it, and the two have to stay in lockstep when the rail collapses. */
+  --oa-rail-width: 236px;
+  --oa-rail-width-min: 64px;
+  --oa-rail-bg: linear-gradient(180deg, #efe4c8 0%, #e9dcbf 45%, #e3d5b4 100%);
+  --oa-rail-border: rgba(90, 74, 40, 0.18);
+  --oa-rail-ms: 200ms;
+  --oa-rail-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Slide-out motion -------------------------------------------------
+     One curve for every slide-out in the app. Opening leaves fast and eases
+     into place, carrying just past its resting edge before settling back —
+     the small bounce that makes a panel feel like a thing with weight rather
+     than a rectangle appearing. Closing is the mirror image: it gathers
+     itself inwards for a moment, then leaves quickly.
+     The overshoot is ~2.5% of the panel's width (about 13px on a 520px
+     panel) — enough to feel, not enough to read as a wobble. */
+  --oa-slideout-in-ms: 380ms;
+  --oa-slideout-out-ms: 260ms;
+  --oa-slideout-ease-in: cubic-bezier(0.15, 1.25, 0.35, 1.01);
+  --oa-slideout-ease-out: cubic-bezier(0.5, -0.08, 0.75, 0.02);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ---- Slide-out panels ---------------------------------------------------
+   Applied by class, not per component: every slide-out panel carries
+   `.oa-slideout` and its backdrop `.oa-slideout-backdrop`, and both gain
+   `.oa-closing` while the panel is on its way out (see shared/slideout-exit.ts
+   — a panel is destroyed the moment it closes, so the exit has to be played
+   BEFORE the parent is told).
+
+   NB the opening animation deliberately has NO fill-mode. A retained
+   transform would leave the panel as the containing block for its own
+   position:fixed children, which would trap a full-screen lightbox opened
+   from inside a slide-out (the purchase order preview does exactly that)
+   inside the panel. Once the animation is over the transform must go away
+   completely. The closing one keeps `forwards` — by the time it matters the
+   panel has already gone. */
+@keyframes oa-slideout-enter {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes oa-slideout-leave {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes oa-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes oa-backdrop-leave {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.oa-slideout {
+  animation: oa-slideout-enter var(--oa-slideout-in-ms) var(--oa-slideout-ease-in);
+}
+.oa-slideout.oa-closing {
+  animation: oa-slideout-leave var(--oa-slideout-out-ms) var(--oa-slideout-ease-out)
+    forwards;
+}
+.oa-slideout-backdrop {
+  animation: oa-backdrop-enter 240ms ease-out;
+}
+.oa-slideout-backdrop.oa-closing {
+  animation: oa-backdrop-leave var(--oa-slideout-out-ms) ease-in forwards;
+}
+
+/* Somebody who has asked their machine to stop moving things gets the panel
+   straight away. slideout-exit.ts checks the same query and skips its wait,
+   so the close is instant too. */
+@media (prefers-reduced-motion: reduce) {
+  .oa-slideout,
+  .oa-slideout.oa-closing,
+  .oa-slideout-backdrop,
+  .oa-slideout-backdrop.oa-closing {
+    animation-duration: 1ms;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--oa-bg);
+  color: var(--oa-text);
+  font-family: Figtree, 'Segoe UI', system-ui, -apple-system, Roboto, Arial,
+    sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+a {
+  color: var(--oa-accent);
+  text-underline-offset: 3px;
+}
+
+::selection {
+  background: rgba(83, 102, 58, 0.24);
+}
+
+/* The browser default focus ring is a blue that no longer exists anywhere in
+   this palette; every focusable thing gets the sage ring instead. */
+:focus-visible {
+  outline: 2px solid var(--oa-accent);
+  outline-offset: 2px;
+}
+
+/* Scrollbars, so the deep panes don't cut a cold grey channel down the middle
+   of a warm page. Firefox's two properties first, then the WebKit form. */
+* {
+  scrollbar-color: var(--oa-border-strong) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--oa-border-strong);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #a89571;
+  background-clip: content-box;
+}
+
+.oa-btn {
+  border: 1px solid var(--oa-border);
+  background: var(--oa-surface-2);
+  color: var(--oa-text);
+  padding: 8px 14px;
+  border-radius: var(--oa-radius);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.oa-btn:hover {
+  background: #f0e6cf;
+  border-color: var(--oa-border-strong);
+}
+.oa-btn-primary {
+  background: var(--oa-accent);
+  border-color: var(--oa-accent);
+  color: #fbf6ea;
+}
+.oa-btn-primary:hover {
+  background: var(--oa-accent-strong);
+  border-color: var(--oa-accent-strong);
+}
+.oa-btn-danger {
+  background: transparent;
+  border-color: var(--oa-danger);
+  color: var(--oa-danger);
+}
+.oa-btn-danger:hover {
+  background: rgba(158, 64, 41, 0.12);
+}
+
+.oa-input,
+.oa-select {
+  width: 100%;
+  padding: 9px 11px;
+  background: #fbf6ea;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius);
+  color: var(--oa-text);
+  font-size: 14px;
+}
+.oa-input::placeholder {
+  color: rgba(38, 34, 26, 0.42);
+}
+.oa-input:focus,
+.oa-select:focus {
+  outline: none;
+  border-color: var(--oa-accent);
+  box-shadow: 0 0 0 3px rgba(83, 102, 58, 0.16);
+}

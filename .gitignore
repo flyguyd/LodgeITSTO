@@ -1,0 +1,5 @@
+node_modules/
+app/dist/
+app/.angular/
+.env
+!deploy/sto.env.example

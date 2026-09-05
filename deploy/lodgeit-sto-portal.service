@@ -1,0 +1,30 @@
+# systemd unit for the STO portal server (its own box, or ratebox).
+# Install to: /etc/systemd/system/lodgeit-sto-portal.service
+# Then:  sudo systemctl daemon-reload && sudo systemctl enable --now lodgeit-sto-portal
+#
+# Layout assumed:
+#   /opt/lodgeit-sto-portal/server.mjs        (installed by deploy/deploy.sh from this repo)
+#   /opt/lodgeit-sto-portal/.env              (from deploy/sto.env.example)
+#   /opt/lodgeit-sto-portal/browser/          (the built app, installed by deploy/deploy.sh)
+# Put nginx or Caddy in front for TLS and pass X-Forwarded-For.
+
+[Unit]
+Description=LodgeIT STO portal (Specialist Tour Operators)
+After=network.target
+
+[Service]
+Type=simple
+User=oase
+Group=oase
+WorkingDirectory=/opt/lodgeit-sto-portal
+EnvironmentFile=/opt/lodgeit-sto-portal/.env
+ExecStart=/usr/bin/node server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
