@@ -32,4 +32,17 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.2',
+    version: '0.1.2',
+    date: '2026-09-05T14:46:52+02:00',
+    changes: [
+      {
+        headline:
+          'The portal sells on ONE channel and nothing else (Dave, 2026-09-05: \u201cThe STO booking site must only query availability and rates using the STO Channel\u201d). Every rate, every free-unit count and every calendar figure an operator sees now comes from the STO channel Lodge Ops assigns, asked of the Booking Engine in one signed call. The website\u2019s rate plans are no longer reachable from here at all, and with no channel assigned the portal quotes nothing and says the lodge has not finished setting it up \u2014 a silent fall back to the public price is exactly the failure this removes. Operators see one price card, named for their channel.',
+        detail:
+          'server.mjs: the pulled configuration gains channelId (Lodge Ops 1.3.58, GET /api/sto-portal/config), logged like the rest when it changes. NEW channelQuote({roomTypeIds, from, to, adults, children, infants, scan}) \u2014 POST /api/engine/rates/channel-quote (engine 0.1.83) signed as the portal\u2019s client, naming cfg.channelId; no channel returns 503 NO_CHANNEL with the operator-facing wording and never calls the engine. /api/engine/availability now derives its {suites: {id: unitsFree}} from a scan-declared channel quote with NO suites named (the engine answers for every suite with a root) and returns the channel beside it, replacing the raw /api/engine/rate-engine/availability read. /api/engine/quote returns {stayNights, channel, plans:[ONE card]} where the card carries the CHANNEL\u2019s name and its source plan\u2019s id \u2014 the app\u2019s existing plan-card rendering is unchanged, and a booking still names a plan Lodge Ops and the engine both know. /api/engine/calendar is rebuilt from channel quotes in 31-night chunks, each night\u2019s rate from the quote\u2019s nights and its free units from the quote\u2019s nightsFree, so the calendar has no second road to availability either. The three retired calls (/api/engine/rate-engine/availability and /api/engine/rates/quote) appear nowhere in the server any more. Requires Lodge Ops 1.3.58 and engine 0.1.83. VERIFIED on the Lodge Ops e2e rig (case 95, 98 checks): the channel named in availability and the quote, a third adult NOT carrying the website\u2019s additional-guest charge, and both Lodge Ops and the portal refusing to quote when the channel is unset.',
+      },
+    ],
+  },
 ];

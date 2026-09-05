@@ -46,7 +46,7 @@ const CONFIG_PULL_MS = Math.max(1000, Number(process.env.CONFIG_PULL_MS) || 60_0
 // the signed link on boot and every CONFIG_PULL_MS — the environment only
 // knows how to reach Lodge Ops (Dave, 2026-09-05: "Move the Lodge Ops STO
 // settings from .env to a settings and hub page").
-const cfg = { engineUrl: '', clientKey: 'sto', clientSecret: '', rateLimit: 240, rateWindowMs: 60_000, sessionHours: 12, portalUrl: '', at: null };
+const cfg = { engineUrl: '', clientKey: 'sto', clientSecret: '', channelId: '', rateLimit: 240, rateWindowMs: 60_000, sessionHours: 12, portalUrl: '', at: null };
 const STARTED = Date.now();
 const TIMEOUT_MS = 30_000;
 const MAX_BODY = 64 * 1024;
@@ -140,12 +140,15 @@ async function pullConfig() {
     engineUrl: String(j.engineUrl ?? '').trim().replace(/\/+$/, ''),
     clientKey: String(j.engineClientKey ?? 'sto').trim() || 'sto',
     clientSecret: String(j.engineClientSecret ?? ''),
+    // THE ONE CHANNEL this portal may sell on (Lodge Ops 1.3.58). Empty and
+    // the portal quotes nothing at all — never the website's plans.
+    channelId: String(j.engineChannelId ?? '').trim(),
     rateLimit: Math.max(1, Number(j.rateLimit) || 240),
     rateWindowMs: Math.max(1000, Number(j.rateWindowMs) || 60_000),
     sessionHours: Math.max(1, Number(j.sessionHours) || 12),
     portalUrl: String(j.portalUrl ?? '').trim(),
   };
-  const changed = ['engineUrl', 'clientKey', 'clientSecret', 'rateLimit', 'rateWindowMs', 'portalUrl'].filter((k) => cfg[k] !== next[k]);
+  const changed = ['engineUrl', 'clientKey', 'clientSecret', 'channelId', 'rateLimit', 'rateWindowMs', 'portalUrl'].filter((k) => cfg[k] !== next[k]);
   Object.assign(cfg, next, { at: new Date().toISOString() });
   if (changed.length) console.log(`[sto-portal] configuration applied from Lodge Ops: ${changed.map((k) => (k === 'clientSecret' ? 'clientSecret (rotated)' : `${k}=${cfg[k]}`)).join(', ')}`);
   return true;
@@ -181,38 +184,73 @@ async function session(token, ip) {
   return v;
 }
 
+/**
+ * THE ONLY WAY THIS PORTAL ASKS FOR RATES OR AVAILABILITY (Dave, 2026-09-05:
+ * "The STO booking site must only query availability and rates using the STO
+ * Channel"). One signed call to the engine's channel quote, naming the channel
+ * Lodge Ops gave us. No channel, no answer: the operator is told the lodge has
+ * not finished setting the portal up rather than being shown public rates.
+ */
+async function channelQuote({ roomTypeIds = [], from, to, adults, children, infants, scan = false }) {
+  if (!cfg.channelId) {
+    return { status: 503, body: { code: 'NO_CHANNEL', message: 'The lodge has not finished setting this portal up — no rate channel is assigned yet.' } };
+  }
+  const body = { channelId: cfg.channelId, roomTypeIds: roomTypeIds.map(String).slice(0, 20), from, to };
+  for (const [k, v] of [['adults', adults], ['children', children], ['infants', infants]]) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) body[k] = Math.min(Math.trunc(n), 99);
+  }
+  if (scan) body.scan = true;
+  const r = await engine('POST', '/api/engine/rates/channel-quote', body);
+  if (r.status === 0) return { status: 503, body: { message: 'The booking engine did not respond.' } };
+  if (r.status >= 300) return { status: r.status, body: r.json ?? { message: 'The channel could not be priced.' } };
+  return { status: 200, body: r.json ?? {} };
+}
+
 // ---- the calendar merge (the same picture Lodge Ops' New booking page shows) ----
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 function daysBetween(from, to) { const out = []; for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) < to; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10)); return out; }
 async function calendar(q) {
   const { roomTypeId, from, to } = q;
   if (!roomTypeId || !ISO.test(from) || !ISO.test(to) || to <= from) return { status: 400, body: { message: 'A suite and a date span are needed.' } };
-  if (daysBetween(from, to).length > 70) return { status: 400, body: { message: 'At most 70 nights per calendar.' } };
-  const av = await engine('GET', `/api/engine/rate-engine/availability?from=${from}&to=${to}&roomTypeId=${encodeURIComponent(roomTypeId)}`);
-  if (av.status === 0) return { status: 503, body: { message: 'The booking engine did not respond.' } };
-  const plans = new Map();
-  for (let start = from; start < to; ) {
-    const d = new Date(`${start}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 31);
-    const end = d.toISOString().slice(0, 10) < to ? d.toISOString().slice(0, 10) : to;
-    const body = { roomTypeIds: [String(roomTypeId)], from: start, to: end, scan: true };
-    for (const k of ['adults', 'children', 'infants']) { const n = Number(q[k]); if (Number.isFinite(n) && n >= 0) body[k] = Math.min(Math.trunc(n), 99); }
-    const r = await engine('POST', '/api/engine/rates/quote', body);
-    if (r.status === 0) return { status: 503, body: { message: 'The booking engine did not respond.' } };
-    for (const p of Array.isArray(r.json?.plans) ? r.json.plans : []) {
-      const entry = plans.get(p.id) ?? { id: p.id, name: p.name, nights: {} };
-      for (const n of p.suites?.[roomTypeId]?.nights ?? []) if (n?.date) entry.nights[n.date] = { totalInclVat: Number.isFinite(Number(n.totalInclVat)) ? Number(n.totalInclVat) : null, closedToArrival: n.closedToArrival === true };
-      plans.set(p.id, entry);
-    }
-    start = end;
-  }
+  const span = daysBetween(from, to);
+  if (span.length > 70) return { status: 400, body: { message: 'At most 70 nights per calendar.' } };
+  // Every figure here comes from the STO channel — the rate of each single
+  // night and the free units of that night, asked one month at a time so a
+  // long window never becomes one enormous quote.
   const days = {};
-  for (const date of daysBetween(from, to)) {
-    const free = av.json?.suites?.[roomTypeId]?.[date] ?? null;
-    const rates = {}; let cheapest = null; let closed = plans.size > 0;
-    for (const p of plans.values()) { const n = p.nights[date]; rates[p.id] = n?.totalInclVat ?? null; if (n?.totalInclVat != null && (cheapest == null || n.totalInclVat < cheapest)) cheapest = n.totalInclVat; if (!n?.closedToArrival) closed = false; }
-    days[date] = { free, rates, cheapest, closedToArrival: closed };
+  let channel = null;
+  for (const date of span) {
+    days[date] = { free: null, rate: null, closedToArrival: false, unknown: true };
   }
-  return { status: 200, body: { ok: true, roomTypeId, from, to, currency: 'ZAR', plans: [...plans.values()].map((p) => ({ id: p.id, name: p.name })), days } };
+  for (let start = 0; start < span.length; start += 31) {
+    const chunk = span.slice(start, start + 31);
+    const chunkTo = (() => { const d = new Date(`${chunk[chunk.length - 1]}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+    const out = await channelQuote({ roomTypeIds: [String(roomTypeId)], from: chunk[0], to: chunkTo, adults: q.adults, children: q.children, infants: q.infants, scan: true });
+    if (out.status !== 200) return out;
+    channel = out.body?.channel ?? channel;
+    const suite = out.body?.suites?.[roomTypeId] ?? {};
+    const free = suite.nightsFree ?? {};
+    for (const n of Array.isArray(suite.nights) ? suite.nights : []) {
+      if (!n?.date || !(n.date in days)) continue;
+      days[n.date] = {
+        free: free[n.date] ?? null,
+        rate: Number.isFinite(Number(n.totalInclVat)) ? Number(n.totalInclVat) : null,
+        closedToArrival: n.closedToArrival === true,
+        unknown: false,
+      };
+    }
+    for (const d of chunk) if (days[d] && days[d].unknown && d in free) days[d].free = free[d];
+  }
+  // The shape the app already draws: one "plan" per calendar, the channel.
+  const out = {};
+  for (const [date, d] of Object.entries(days)) {
+    out[date] = { free: d.free, rates: channel ? { [channel.id]: d.rate } : {}, cheapest: d.rate, closedToArrival: d.closedToArrival };
+  }
+  return {
+    status: 200,
+    body: { ok: true, roomTypeId, from, to, currency: 'ZAR', plans: channel ? [{ id: channel.id, name: channel.name }] : [], days: out },
+  };
 }
 
 // ---- the server ----------------------------------------------------------------
@@ -261,26 +299,32 @@ const server = createServer(async (req, res) => {
       if (clean === '/api/engine/availability' && method === 'GET') {
         const from = params.get('from') ?? '', to = params.get('to') ?? '';
         if (!ISO.test(from) || !ISO.test(to) || to <= from) { json(res, 400, { message: 'Check-out must be after check-in.' }); return; }
-        const r = await engine('GET', `/api/engine/rate-engine/availability?from=${from}&to=${to}`);
-        if (r.status === 0) { json(res, 503, { message: 'The booking engine did not respond.' }); return; }
+        // Availability comes from the STO channel too: the same quote answers
+        // "what may I sell, and how much of it is free" in one signed call.
+        const out = await channelQuote({ from, to, scan: true });
+        if (out.status !== 200) { json(res, out.status, out.body); return; }
         const suites = {};
-        for (const [id, days] of Object.entries(r.json?.suites ?? {})) {
-          let min = Infinity;
-          for (const v of Object.values(days ?? {})) { if (v == null) { min = null; break; } if (v < min) min = v; }
-          suites[id] = min === Infinity ? null : min;
-        }
-        json(res, 200, { ok: true, from, to, suites });
+        for (const [id, sum] of Object.entries(out.body?.suites ?? {})) suites[id] = sum?.unitsFree ?? null;
+        json(res, 200, { ok: true, from, to, channel: out.body?.channel ?? null, suites });
         return;
       }
       if (clean === '/api/engine/quote' && method === 'POST') {
-        const q = { roomTypeIds: (Array.isArray(body?.roomTypeIds) ? body.roomTypeIds : []).map(String).slice(0, 20), from: String(body?.from ?? ''), to: String(body?.to ?? '') };
-        for (const k of ['adults', 'children', 'infants']) { const n = Number(body?.[k]); if (Number.isFinite(n) && n >= 0) q[k] = Math.min(Math.trunc(n), 99); }
-        if (!q.roomTypeIds.length || !ISO.test(q.from) || !ISO.test(q.to) || q.to <= q.from) { json(res, 400, { message: 'Suites and a stay are needed.' }); return; }
-        const r = await engine('POST', '/api/engine/rates/quote', q);
-        if (r.status === 0) { json(res, 503, { message: 'The booking engine did not respond.' }); return; }
+        const ids = (Array.isArray(body?.roomTypeIds) ? body.roomTypeIds : []).map(String).slice(0, 20);
+        const from = String(body?.from ?? ''), to = String(body?.to ?? '');
+        if (!ids.length || !ISO.test(from) || !ISO.test(to) || to <= from) { json(res, 400, { message: 'Suites and a stay are needed.' }); return; }
+        const out = await channelQuote({ roomTypeIds: ids, from, to, adults: body?.adults, children: body?.children, infants: body?.infants });
+        if (out.status !== 200) { json(res, out.status, out.body); return; }
+        const ch = out.body?.channel ?? null;
         // Counted at Lodge Ops as an availability search (best effort).
-        void lodgeOps('POST', '/events/search', { token, ip, body: { from: q.from, to: q.to, adults: q.adults ?? null, children: q.children ?? null, infants: q.infants ?? null, suites: q.roomTypeIds, results: Array.isArray(r.json?.plans) ? r.json.plans.length : 0 } });
-        json(res, r.status, r.json ?? { message: 'The quote failed.' });
+        void lodgeOps('POST', '/events/search', { token, ip, body: { from, to, adults: body?.adults ?? null, children: body?.children ?? null, infants: body?.infants ?? null, suites: ids, results: Object.keys(out.body?.suites ?? {}).length } });
+        // The app draws price cards from `plans`: there is exactly one, the
+        // channel, carrying its source plan's id so a booking still names a
+        // plan Lodge Ops and the engine both know.
+        json(res, 200, {
+          stayNights: out.body?.stayNights ?? null,
+          channel: ch,
+          plans: ch ? [{ id: ch.planId || ch.id, name: ch.name, description: null, suites: out.body?.suites ?? {} }] : [],
+        });
         return;
       }
       if (clean === '/api/engine/calendar' && method === 'GET') {
