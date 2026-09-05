@@ -45,4 +45,17 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.3',
+    version: '0.1.3',
+    date: '2026-09-05T16:50:09+02:00',
+    changes: [
+      {
+        headline:
+          'Every rate the portal asks for now carries the operator\'s key, so the rate engine prices that operator itself \u2014 and the price card shows both figures (Dave, 2026-09-05: \u201cOn the portal when showing a rate total, so the STO discounted rate and below show in a smaller font the original rack rate with a strike through\u201d). The operator\'s price is the large figure; beneath it, smaller and struck through, the lodge\'s published rate with the percentage off. The same pairing appears on the booking summary and in each calendar cell. The key belongs to the SERVER: it signs the engine quote with it and strips it out of anything a browser sees.',
+        detail:
+          'server.mjs: the session vouch now remembers the operator\'s key from Lodge Ops\' /me (portalKey, Lodge Ops 1.3.59) and channelQuote() sends it as stoKey on every availability, quote and calendar call (engine 0.1.85). THE KEY NEVER REACHES A BROWSER \u2014 the /api/lo/ relay strips portalKey out of the /me answer on its way back, so the page holds the company and the discount percentage but nothing that names the operator to the engine. /api/engine/quote passes the engine\'s sto {applied, discountPct} through beside the one price card; /api/engine/calendar shows the operator\'s nightly figure as the cell\'s rate with the channel\'s own beside it as rack, both from the quote\'s stoTotalInclVat and totalInclVat. app: QuoteSuite gains sto {discountPct, rateTotal, vatTotal, grandTotal} and CalendarDay gains rack. New-booking prices from the ENGINE\'s operator figure (stoSum()) rather than multiplying the rack by a percentage locally \u2014 the local arithmetic survives only as a fallback for a quote with no operator figure. The card renders the operator\'s total in .nb-plan-total with the rack beneath in .nb-plan-rack as <s>\u2026</s> plus a \u201cn% off\u201d label; the booking summary\'s \u201cYour price\u201d gains the same struck-through rack line; a calendar cell shows the rack struck through under the nightly when the two differ. The gap between the struck figure and the \u201c% off\u201d label is a CSS margin, not a space in the template: Angular collapses whitespace between inline elements (preserveWhitespaces is off) and the first build shipped \u201cR13,800.0010% off\u201d \u2014 the e2e check now measures that gap so it cannot come back. Requires Lodge Ops 1.3.59 and engine 0.1.85. VERIFIED on the Lodge Ops e2e rig (case 95, 108 checks) including a Chromium check that the rack figure sits BELOW the price, in a smaller font, with line-through, and that /me through the portal carries no key.',
+      },
+    ],
+  },
 ];

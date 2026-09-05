@@ -178,7 +178,9 @@ async function session(token, ip) {
   if (hit && Date.now() - hit.at < VOUCH_MS) return hit;
   const r = await lodgeOps('GET', '/me', { token, ip });
   if (r.status !== 200 || !r.json?.user?.id) { vouched.delete(token); return null; }
-  const v = { at: Date.now(), stoId: r.json.company?.id, userId: r.json.user.id, discountPct: Number(r.json.company?.discountPct) || 0 };
+  // The operator's rate-engine key rides in the vouch and NEVER to a browser:
+  // it is what this server sends the engine so the right discount is applied.
+  const v = { at: Date.now(), stoId: r.json.company?.id, userId: r.json.user.id, discountPct: Number(r.json.company?.discountPct) || 0, stoKey: String(r.json.portalKey ?? '') };
   vouched.set(token, v);
   if (vouched.size > 5000) for (const [k, s] of vouched) if (Date.now() - s.at > VOUCH_MS) vouched.delete(k);
   return v;
@@ -191,11 +193,12 @@ async function session(token, ip) {
  * Lodge Ops gave us. No channel, no answer: the operator is told the lodge has
  * not finished setting the portal up rather than being shown public rates.
  */
-async function channelQuote({ roomTypeIds = [], from, to, adults, children, infants, scan = false }) {
+async function channelQuote({ roomTypeIds = [], from, to, adults, children, infants, scan = false, stoKey = '' }) {
   if (!cfg.channelId) {
     return { status: 503, body: { code: 'NO_CHANNEL', message: 'The lodge has not finished setting this portal up — no rate channel is assigned yet.' } };
   }
   const body = { channelId: cfg.channelId, roomTypeIds: roomTypeIds.map(String).slice(0, 20), from, to };
+  if (stoKey) body.stoKey = stoKey;
   for (const [k, v] of [['adults', adults], ['children', children], ['infants', infants]]) {
     const n = Number(v);
     if (Number.isFinite(n) && n >= 0) body[k] = Math.min(Math.trunc(n), 99);
@@ -226,16 +229,21 @@ async function calendar(q) {
   for (let start = 0; start < span.length; start += 31) {
     const chunk = span.slice(start, start + 31);
     const chunkTo = (() => { const d = new Date(`${chunk[chunk.length - 1]}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
-    const out = await channelQuote({ roomTypeIds: [String(roomTypeId)], from: chunk[0], to: chunkTo, adults: q.adults, children: q.children, infants: q.infants, scan: true });
+    const out = await channelQuote({ roomTypeIds: [String(roomTypeId)], from: chunk[0], to: chunkTo, adults: q.adults, children: q.children, infants: q.infants, scan: true, stoKey: q.stoKey });
     if (out.status !== 200) return out;
     channel = out.body?.channel ?? channel;
     const suite = out.body?.suites?.[roomTypeId] ?? {};
     const free = suite.nightsFree ?? {};
     for (const n of Array.isArray(suite.nights) ? suite.nights : []) {
       if (!n?.date || !(n.date in days)) continue;
+      const rack = Number.isFinite(Number(n.totalInclVat)) ? Number(n.totalInclVat) : null;
+      const mine = Number.isFinite(Number(n.stoTotalInclVat)) ? Number(n.stoTotalInclVat) : null;
       days[n.date] = {
         free: free[n.date] ?? null,
-        rate: Number.isFinite(Number(n.totalInclVat)) ? Number(n.totalInclVat) : null,
+        // What THIS operator pays is the figure the calendar shows; the rack
+        // one rides beside it so a cell can strike it through.
+        rate: mine ?? rack,
+        rackRate: rack,
         closedToArrival: n.closedToArrival === true,
         unknown: false,
       };
@@ -245,7 +253,7 @@ async function calendar(q) {
   // The shape the app already draws: one "plan" per calendar, the channel.
   const out = {};
   for (const [date, d] of Object.entries(days)) {
-    out[date] = { free: d.free, rates: channel ? { [channel.id]: d.rate } : {}, cheapest: d.rate, closedToArrival: d.closedToArrival };
+    out[date] = { free: d.free, rates: channel ? { [channel.id]: d.rate } : {}, cheapest: d.rate, rack: d.rackRate ?? null, closedToArrival: d.closedToArrival };
   }
   return {
     status: 200,
@@ -289,7 +297,11 @@ const server = createServer(async (req, res) => {
       const r = await lodgeOps(method, rest + query, { token, ip, body });
       if (r.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
       if (r.status === 401) vouched.delete(token);
-      json(res, r.status, r.json ?? { message: r.text.slice(0, 200) });
+      // THE OPERATOR's RATE-ENGINE KEY NEVER REACHES A BROWSER. /me carries it
+      // for this server's benefit (it signs the engine quote with it); the
+      // page has no use for it and no business holding it.
+      const out = r.json && typeof r.json === 'object' && 'portalKey' in r.json ? { ...r.json, portalKey: undefined } : r.json;
+      json(res, r.status, out ?? { message: r.text.slice(0, 200) });
       return;
     }
     if (clean.startsWith('/api/engine/')) {
@@ -301,7 +313,7 @@ const server = createServer(async (req, res) => {
         if (!ISO.test(from) || !ISO.test(to) || to <= from) { json(res, 400, { message: 'Check-out must be after check-in.' }); return; }
         // Availability comes from the STO channel too: the same quote answers
         // "what may I sell, and how much of it is free" in one signed call.
-        const out = await channelQuote({ from, to, scan: true });
+        const out = await channelQuote({ from, to, scan: true, stoKey: s.stoKey });
         if (out.status !== 200) { json(res, out.status, out.body); return; }
         const suites = {};
         for (const [id, sum] of Object.entries(out.body?.suites ?? {})) suites[id] = sum?.unitsFree ?? null;
@@ -312,9 +324,10 @@ const server = createServer(async (req, res) => {
         const ids = (Array.isArray(body?.roomTypeIds) ? body.roomTypeIds : []).map(String).slice(0, 20);
         const from = String(body?.from ?? ''), to = String(body?.to ?? '');
         if (!ids.length || !ISO.test(from) || !ISO.test(to) || to <= from) { json(res, 400, { message: 'Suites and a stay are needed.' }); return; }
-        const out = await channelQuote({ roomTypeIds: ids, from, to, adults: body?.adults, children: body?.children, infants: body?.infants });
+        const out = await channelQuote({ roomTypeIds: ids, from, to, adults: body?.adults, children: body?.children, infants: body?.infants, stoKey: s.stoKey });
         if (out.status !== 200) { json(res, out.status, out.body); return; }
         const ch = out.body?.channel ?? null;
+        const sto = out.body?.sto ?? { applied: false, discountPct: 0 };
         // Counted at Lodge Ops as an availability search (best effort).
         void lodgeOps('POST', '/events/search', { token, ip, body: { from, to, adults: body?.adults ?? null, children: body?.children ?? null, infants: body?.infants ?? null, suites: ids, results: Object.keys(out.body?.suites ?? {}).length } });
         // The app draws price cards from `plans`: there is exactly one, the
@@ -323,12 +336,13 @@ const server = createServer(async (req, res) => {
         json(res, 200, {
           stayNights: out.body?.stayNights ?? null,
           channel: ch,
+          sto: { applied: sto.applied === true, discountPct: Number(sto.discountPct) || 0 },
           plans: ch ? [{ id: ch.planId || ch.id, name: ch.name, description: null, suites: out.body?.suites ?? {} }] : [],
         });
         return;
       }
       if (clean === '/api/engine/calendar' && method === 'GET') {
-        const out = await calendar({ roomTypeId: params.get('roomTypeId') ?? '', from: params.get('from') ?? '', to: params.get('to') ?? '', adults: params.get('adults'), children: params.get('children'), infants: params.get('infants') });
+        const out = await calendar({ roomTypeId: params.get('roomTypeId') ?? '', from: params.get('from') ?? '', to: params.get('to') ?? '', adults: params.get('adults'), children: params.get('children'), infants: params.get('infants'), stoKey: s.stoKey });
         json(res, out.status, out.body);
         return;
       }

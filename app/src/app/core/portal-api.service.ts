@@ -11,18 +11,30 @@ export interface Catalog {
   holdHours: number;
   company: { id: string; name: string };
 }
+/** What THIS operator pays for a suite, worked out by the rate engine after
+ *  the channel's last rule (engine 0.1.85). Absent when the engine did not
+ *  honour a key, in which case the rack figures are all there is. */
+export interface QuoteSto {
+  discountPct: number;
+  rateTotal: number | null;
+  vatTotal: number | null;
+  grandTotal: number | null;
+}
 export interface QuoteSuite {
   available?: boolean;
   restricted?: string | null;
+  /** The CHANNEL's own (rack) figure. */
   grandTotal?: number | null;
   rateTotal?: number | null;
   vatTotal?: number | null;
   unitsFree?: number | null;
+  sto?: QuoteSto | null;
 }
 export interface Quote {
   plans: { id: string; name: string; suites: Record<string, QuoteSuite> }[];
+  sto?: { applied: boolean; discountPct: number };
 }
-export interface CalendarDay { free: number | null; rates: Record<string, number | null>; cheapest: number | null; closedToArrival: boolean; }
+export interface CalendarDay { free: number | null; rates: Record<string, number | null>; cheapest: number | null; rack?: number | null; closedToArrival: boolean; }
 export interface SuiteCalendar { ok: boolean; roomTypeId: string; from: string; to: string; currency: string; plans: { id: string; name: string }[]; days: Record<string, CalendarDay>; }
 export interface StayInput {
   from: string; to: string; adults: number; children: number; infants: number; planId: string;

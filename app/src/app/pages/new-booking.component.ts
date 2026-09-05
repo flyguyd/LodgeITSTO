@@ -11,7 +11,10 @@ const addMonths = (month: string, n: number) => { const d = new Date(`${month}-0
 const monthLabel = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 const calMoney = (v: number, currency: string) => (currency === 'ZAR' || !currency ? 'R' : currency + ' ') + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-interface CalCell { date: string; num: number; day: CalendarDay | null; stay: boolean; past: boolean; rate: string; freeText: string; title: string; }
+interface CalCell { date: string; num: number; day: CalendarDay | null; stay: boolean; past: boolean; rate: string; freeText: string; title: string;
+  /** The channel's own nightly, struck through beneath the operator's. */
+  rack: string;
+}
 interface SuiteLine { roomTypeId: string; units: number; }
 
 /**
@@ -81,7 +84,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
                   <button type="button" class="nb-plan" [class.on]="planId() === p.id" [disabled]="!sellable(p.id)" (click)="planId.set(p.id)">
                     <span class="nb-plan-name">{{ p.name }}</span>
                     <span class="nb-plan-total">{{ planTotal(p.id) }}</span>
-                    @if (planRack(p.id); as rk) { <span class="nb-plan-rack">published {{ rk }} · {{ discountPct() }}% off</span> }
+                    @if (planRack(p.id); as rk) { <span class="nb-plan-rack"><s>{{ rk }}</s> <span class="nb-plan-off">{{ discountPct() }}% off</span></span> }
                     @if (planNote(p.id); as n) { <span class="nb-plan-note">{{ n }}</span> }
                   </button>
                 }
@@ -108,7 +111,11 @@ interface SuiteLine { roomTypeId: string; units: number; }
           <div class="nb-summary">
             <div><span>{{ chosenLines().length > 1 ? 'Suites' : 'Suite' }}</span><strong>{{ suitesText() }}</strong></div>
             <div><span>Stay</span><strong>@if (from() && to()) { {{ from() | date: 'd MMM' }} → {{ to() | date: 'd MMM yyyy' }} · {{ nights() }}n } @else { — }</strong></div>
-            <div><span>Your price</span><strong>{{ totalText() }}</strong></div>
+            <div>
+              <span>Your price</span>
+              <strong>{{ totalText() }}</strong>
+              @if (totalRackText(); as rk) { <small class="nb-rack"><s>{{ rk }}</s> rack · {{ discountPct() }}% off</small> }
+            </div>
           </div>
           @if (error()) { <p class="nb-err">{{ error() }}</p> }
           <div class="nb-actions">
@@ -148,7 +155,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
                     @if (c) {
                       <div class="nb-cal-day" [class.stay]="c.stay" [class.soldout]="c.day?.free === 0" [class.unknown]="!c.day || c.day.free == null" [class.past]="c.past" [attr.data-date]="c.date" [title]="c.title">
                         <span class="nb-cal-num">{{ c.num }}</span>
-                        @if (c.day && !c.past) { <span class="nb-cal-rate">{{ c.rate }}</span><span class="nb-cal-free">{{ c.freeText }}</span> }
+                        @if (c.day && !c.past) { <span class="nb-cal-rate">{{ c.rate }}</span>@if (c.rack) { <span class="nb-cal-rack">{{ c.rack }}</span> }<span class="nb-cal-free">{{ c.freeText }}</span> }
                       </div>
                     } @else { <div class="nb-cal-day nb-cal-blank"></div> }
                   }
@@ -190,7 +197,14 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-plan:disabled { opacity: 0.55; cursor: not-allowed; }
       .nb-plan-name { font-weight: 600; font-size: 13.5px; }
       .nb-plan-total { font-size: 18px; font-variant-numeric: tabular-nums; }
-      .nb-plan-rack { font-size: 12px; color: var(--oa-text-dim); text-decoration: line-through; }
+      /* The rack figure sits BELOW the operator's price, smaller and struck
+         through, so what is paid and what it is off are never confused. */
+      .nb-plan-rack { font-size: 12px; color: var(--oa-text-dim); }
+      .nb-plan-rack s { text-decoration: line-through; }
+      .nb-plan-off { text-decoration: none; margin-left: 5px; }
+      .nb-rack { display: block; font-size: 11.5px; font-weight: 400; color: var(--oa-text-dim); margin-top: 2px; }
+      .nb-rack s { text-decoration: line-through; }
+      .nb-cal-rack { font-size: 10.5px; color: var(--oa-text-dim); text-decoration: line-through; }
       .nb-plan-note { font-size: 12px; color: var(--oa-text-dim); }
       .nb-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--oa-border); border-radius: var(--oa-radius); background: var(--oa-surface-2); }
       .nb-summary div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
@@ -336,8 +350,24 @@ export class NewBookingComponent implements OnInit {
     return this.chosenLines().length ? sum : null;
   }
   private discounted(v: number): number { return Math.round(v * (1 - this.discountPct() / 100) * 100) / 100; }
-  planTotal(planId: string): string { const sum = this.rackSum(planId); return sum == null ? 'no rate' : money(this.discounted(sum), this.catalog()?.currency); }
+  /** THE OPERATOR's price, as the rate engine worked it out (engine 0.1.85):
+   *  the channel's stack ran to its last rule and this operator's discount
+   *  was applied after it. Falls back to the local percentage only if the
+   *  engine sent no operator figure. */
+  private stoSum(planId: string): number | null {
+    let sum = 0;
+    let sawEngineFigure = false;
+    for (const l of this.chosenLines()) {
+      const s = this.suiteQuote(planId, l.roomTypeId);
+      if (!s || s.grandTotal == null) return null;
+      const mine = s.sto?.grandTotal;
+      if (mine != null) { sawEngineFigure = true; sum += mine * l.units; } else sum += this.discounted(s.grandTotal * l.units);
+    }
+    return sawEngineFigure || this.discountPct() <= 0 ? Math.round(sum * 100) / 100 : Math.round(sum * 100) / 100;
+  }
+  planTotal(planId: string): string { const sum = this.stoSum(planId); return sum == null ? 'no rate' : money(sum, this.catalog()?.currency); }
   planRack(planId: string): string { const sum = this.rackSum(planId); return sum == null || this.discountPct() <= 0 ? '' : money(sum, this.catalog()?.currency); }
+  totalRackText(): string { const p = this.planId(); if (!p || this.discountPct() <= 0) return ''; const sum = this.rackSum(p); return sum == null ? '' : money(sum, this.catalog()?.currency); }
   planNote(planId: string): string {
     const cur = this.catalog()?.currency;
     const chosen = this.chosenLines();
@@ -345,9 +375,9 @@ export class NewBookingComponent implements OnInit {
       const s = this.suiteQuote(planId, chosen[0].roomTypeId);
       if (!s) return 'not priced for this suite';
       if (s.available === false) return s.restricted || 'not sold for this stay';
-      return `${money(this.discounted((s.grandTotal ?? 0) * chosen[0].units), cur)} for ${chosen[0].units > 1 ? chosen[0].units + ' units' : 'the suite'}, VAT in`;
+      return `${money(s.sto?.grandTotal != null ? s.sto.grandTotal * chosen[0].units : this.discounted((s.grandTotal ?? 0) * chosen[0].units), cur)} for ${chosen[0].units > 1 ? chosen[0].units + ' units' : 'the suite'}, VAT in`;
     }
-    return chosen.map((l) => { const s = this.suiteQuote(planId, l.roomTypeId); const name = this.suiteOf(l.roomTypeId)?.name ?? l.roomTypeId; if (!s) return `${name}: not priced`; if (s.available === false) return `${name}: ${s.restricted || 'not sold'}`; return `${name}${l.units > 1 ? ` × ${l.units}` : ''} ${money(this.discounted((s.grandTotal ?? 0) * l.units), cur)}`; }).join(' · ');
+    return chosen.map((l) => { const s = this.suiteQuote(planId, l.roomTypeId); const name = this.suiteOf(l.roomTypeId)?.name ?? l.roomTypeId; if (!s) return `${name}: not priced`; if (s.available === false) return `${name}: ${s.restricted || 'not sold'}`; return `${name}${l.units > 1 ? ` × ${l.units}` : ''} ${money(s.sto?.grandTotal != null ? s.sto.grandTotal * l.units : this.discounted((s.grandTotal ?? 0) * l.units), cur)}`; }).join(' · ');
   }
   unitsFreeText(): string {
     const q = this.quote(); const chosen = this.chosenLines();
@@ -355,7 +385,7 @@ export class NewBookingComponent implements OnInit {
     return chosen.map((l) => { const n = this.planId() ? this.suiteQuote(this.planId(), l.roomTypeId)?.unitsFree : null; const name = this.suiteOf(l.roomTypeId)?.name ?? l.roomTypeId; return `${chosen.length > 1 ? name + ' ' : ''}${n == null ? (this.freeFor(l.roomTypeId) ?? 'unknown') : n}`; }).join(' · ');
   }
   suitesText(): string { const chosen = this.chosenLines(); return chosen.length ? chosen.map((l) => `${this.suiteOf(l.roomTypeId)?.name ?? l.roomTypeId}${l.units > 1 ? ` × ${l.units}` : ''}`).join(', ') : '—'; }
-  totalText(): string { const sum = this.planId() ? this.rackSum(this.planId()) : null; return sum != null ? money(this.discounted(sum), this.catalog()?.currency) : '—'; }
+  totalText(): string { const sum = this.planId() ? this.stoSum(this.planId()) : null; return sum != null ? money(sum, this.catalog()?.currency) : '—'; }
 
   private stayInput(): StayInput {
     const guest = this.firstName().trim() || this.lastName().trim() || this.email().trim() ? { firstName: this.firstName().trim(), lastName: this.lastName().trim(), email: this.email().trim() || null, phone: this.phone().trim() || null, country: this.country().trim() || null } : null;
@@ -417,7 +447,8 @@ export class NewBookingComponent implements OnInit {
         const day = data?.days?.[date] ?? null;
         const rack = day ? (planId && day.rates[planId] != null ? day.rates[planId] : day.cheapest) : null;
         const rate = rack != null ? this.discounted(rack) : null;
-        cells.push({ date, num: n, day, stay: date >= from && date < to, past: date < today, rate: rate != null ? calMoney(rate, currency) : day ? '—' : '', freeText: day ? (day.free == null ? 'not known' : day.free === 0 ? 'none free' : `${day.free} free`) : '', title: day ? `${date}: ${day.free == null ? 'availability not known' : day.free + ' unit(s) free'}${rate != null ? ', ' + money(rate, currency) + ' per night for you' : ''}` : date });
+        const rackRate = day?.rack ?? null;
+        cells.push({ date, num: n, day, stay: date >= from && date < to, past: date < today, rate: rate != null ? calMoney(rate, currency) : day ? '—' : '', rack: rackRate != null && rate != null && rackRate > rate ? calMoney(rackRate, currency) : '', freeText: day ? (day.free == null ? 'not known' : day.free === 0 ? 'none free' : `${day.free} free`) : '', title: day ? `${date}: ${day.free == null ? 'availability not known' : day.free + ' unit(s) free'}${rate != null ? ', ' + money(rate, currency) + ' per night for you' : ''}` : date });
       }
       while (cells.length % 7) cells.push(null);
       return { key: m, label: monthLabel(m), cells };

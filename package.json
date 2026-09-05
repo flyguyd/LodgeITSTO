@@ -1,6 +1,6 @@
 {
   "name": "lodgeit-sto",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "LodgeIT STO portal - the Specialist Tour Operators' booking portal for 7 Star Lodges: its Angular app and the service that serves it",
   "author": "7 Star Lodges",
   "private": true,
