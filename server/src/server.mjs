@@ -19,9 +19,10 @@
 //   DIST_DIR           the built app (default ../frontend/dist/sto-portal/browser)
 //   LODGEOPS_URL       Lodge Ops API base, e.g. http://127.0.0.1:3000/api
 //   STO_KEY/STO_SECRET the portal's key on the Lodge Ops STO page
-//   ENGINE_URL         the Booking Engine base, e.g. http://127.0.0.1:3100
-//   CLIENT_KEY/CLIENT_SECRET   the portal's service client on the engine
-//   RATE_LIMIT / RATE_WINDOW_MS   per-IP guest limit (default 240 per 60 s)
+//   CONFIG_PULL_MS     how often to pull configuration from Lodge Ops and
+//                      report the heartbeat (default 60000)
+//   Everything else (the engine, the engine client, the rate limit, session
+//   hours, the public address) comes from Lodge Ops → Settings → STO Portal.
 //   TRUSTED_PROXY      1 = take the client IP from X-Forwarded-For's last hop
 import http, { createServer } from 'node:http';
 import https from 'node:https';
@@ -37,12 +38,16 @@ const DIST_DIR = resolve(process.env.DIST_DIR || join(here, '..', '..', 'app', '
 const LODGEOPS_URL = (process.env.LODGEOPS_URL ?? '').trim().replace(/\/+$/, '');
 const STO_KEY = (process.env.STO_KEY ?? 'sto-portal').trim();
 const STO_SECRET = process.env.STO_SECRET ?? '';
-const ENGINE_URL = (process.env.ENGINE_URL ?? '').trim().replace(/\/+$/, '');
-const CLIENT_KEY = (process.env.CLIENT_KEY ?? 'sto').trim();
-const CLIENT_SECRET = process.env.CLIENT_SECRET ?? '';
-const RATE_LIMIT = Number(process.env.RATE_LIMIT) || 240;
-const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS) || 60_000;
 const TRUSTED_PROXY = (process.env.TRUSTED_PROXY ?? '1') !== '0';
+// How often the portal asks Lodge Ops for its configuration and reports its
+// heartbeat (the e2e rig sets it to seconds).
+const CONFIG_PULL_MS = Math.max(1000, Number(process.env.CONFIG_PULL_MS) || 60_000);
+// Everything below comes from Lodge Ops (Settings → STO Portal), pulled over
+// the signed link on boot and every CONFIG_PULL_MS — the environment only
+// knows how to reach Lodge Ops (Dave, 2026-09-05: "Move the Lodge Ops STO
+// settings from .env to a settings and hub page").
+const cfg = { engineUrl: '', clientKey: 'sto', clientSecret: '', rateLimit: 240, rateWindowMs: 60_000, sessionHours: 12, portalUrl: '', at: null };
+const STARTED = Date.now();
 const TIMEOUT_MS = 30_000;
 const MAX_BODY = 64 * 1024;
 // The Lodge Ops version this portal shipped with: deploy.sh writes VERSION
@@ -60,9 +65,9 @@ const buckets = new Map();
 function allow(ip, now = Date.now()) {
   if (buckets.size > 10_000) for (const [k, b] of buckets) if (b.resetAt <= now) buckets.delete(k);
   let b = buckets.get(ip);
-  if (!b || b.resetAt <= now) { b = { count: 0, resetAt: now + RATE_WINDOW_MS }; buckets.set(ip, b); }
+  if (!b || b.resetAt <= now) { b = { count: 0, resetAt: now + cfg.rateWindowMs }; buckets.set(ip, b); }
   b.count += 1;
-  return b.count <= RATE_LIMIT;
+  return b.count <= cfg.rateLimit;
 }
 function clientIp(req) {
   if (TRUSTED_PROXY) {
@@ -114,12 +119,48 @@ function lodgeOps(method, path, { token, ip, body } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   return call(LODGEOPS_URL, method, `/sto-portal${path}`, headers, rawBody);
 }
-/** A call to the engine, signed as the portal's own client. */
+/** A call to the engine, signed as the portal's own client (from the pulled config). */
 function engine(method, path, body) {
-  if (!ENGINE_URL || !CLIENT_SECRET) return Promise.resolve({ status: 0, json: null, text: '' });
+  if (!cfg.engineUrl || !cfg.clientSecret) return Promise.resolve({ status: 0, json: null, text: '' });
   const rawBody = body === undefined ? '' : JSON.stringify(body);
-  const { ts, sig } = sign(CLIENT_SECRET, method, path, rawBody);
-  return call(ENGINE_URL, method, path, { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Engine-Key': CLIENT_KEY, 'X-Engine-Ts': ts, 'X-Engine-Sign': sig }, rawBody);
+  const { ts, sig } = sign(cfg.clientSecret, method, path, rawBody);
+  return call(cfg.engineUrl, method, path, { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Engine-Key': cfg.clientKey, 'X-Engine-Ts': ts, 'X-Engine-Sign': sig }, rawBody);
+}
+
+// ---- configuration from Lodge Ops, and the heartbeat back --------------------
+/** Pull what Settings → STO Portal says; keep the last good answer if Lodge Ops is away. */
+async function pullConfig() {
+  const r = await lodgeOps('GET', '/config');
+  if (r.status !== 200 || !r.json || typeof r.json.engineUrl !== 'string') {
+    if (!cfg.at) console.warn(`[sto-portal] configuration not pulled from Lodge Ops (${r.status || 'unreachable'}) — no availability or rates until it is`);
+    return false;
+  }
+  const j = r.json;
+  const next = {
+    engineUrl: String(j.engineUrl ?? '').trim().replace(/\/+$/, ''),
+    clientKey: String(j.engineClientKey ?? 'sto').trim() || 'sto',
+    clientSecret: String(j.engineClientSecret ?? ''),
+    rateLimit: Math.max(1, Number(j.rateLimit) || 240),
+    rateWindowMs: Math.max(1000, Number(j.rateWindowMs) || 60_000),
+    sessionHours: Math.max(1, Number(j.sessionHours) || 12),
+    portalUrl: String(j.portalUrl ?? '').trim(),
+  };
+  const changed = ['engineUrl', 'clientKey', 'clientSecret', 'rateLimit', 'rateWindowMs', 'portalUrl'].filter((k) => cfg[k] !== next[k]);
+  Object.assign(cfg, next, { at: new Date().toISOString() });
+  if (changed.length) console.log(`[sto-portal] configuration applied from Lodge Ops: ${changed.map((k) => (k === 'clientSecret' ? 'clientSecret (rotated)' : `${k}=${cfg[k]}`)).join(', ')}`);
+  return true;
+}
+/** Is the engine answering us? Its /api/health is public. */
+async function engineReachable() {
+  if (!cfg.engineUrl) return false;
+  const r = await call(cfg.engineUrl, 'GET', '/api/health', { Accept: 'application/json' }, '');
+  return r.status === 200;
+}
+/** Report ourselves to Lodge Ops (version, uptime, whether we see the engine, when the config was applied). */
+async function heartbeat() {
+  const body = { version: VERSION, uptimeSec: Math.round((Date.now() - STARTED) / 1000), url: cfg.portalUrl, listen: `${LISTEN_HOST || '*'}:${PORT}`, engineReachable: await engineReachable(), configAt: cfg.at };
+  const r = await lodgeOps('POST', '/heartbeat', { body });
+  if (r.status !== 200) console.warn(`[sto-portal] heartbeat not accepted by Lodge Ops (${r.status || 'unreachable'})`);
 }
 
 // ---- sessions the engine may be asked for -----------------------------------
@@ -183,7 +224,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  if (url === '/health') { json(res, 200, { ok: true, version: VERSION, lodgeOps: !!(LODGEOPS_URL && STO_SECRET), engine: !!(ENGINE_URL && CLIENT_SECRET) }); return; }
+  if (url === '/health') { json(res, 200, { ok: true, version: VERSION, lodgeOps: !!(LODGEOPS_URL && STO_SECRET), engine: !!(cfg.engineUrl && cfg.clientSecret), configAt: cfg.at, engineUrl: cfg.engineUrl || null }); return; }
 
   if (url.startsWith('/api/')) {
     if (!allow(ip)) { json(res, 429, { code: 'RATE_LIMITED', message: 'Too many requests — slow down.' }); return; }
@@ -275,8 +316,12 @@ const server = createServer(async (req, res) => {
     json(res, 404, { message: `The STO app is not built (${root}).` });
   }
 });
+if (!LODGEOPS_URL || !STO_SECRET) console.warn('[sto-portal] LODGEOPS_URL / STO_SECRET not set — nobody can sign in and no configuration can be pulled.');
+else await pullConfig();
 server.listen(PORT, LISTEN_HOST || undefined, () => {
-  console.log(`[sto-portal] v${VERSION} on ${LISTEN_HOST || '*'}:${PORT} — app ${DIST_DIR}; Lodge Ops ${LODGEOPS_URL || '(unset)'}; engine ${ENGINE_URL || '(unset)'}`);
-  if (!LODGEOPS_URL || !STO_SECRET) console.warn('[sto-portal] LODGEOPS_URL / STO_SECRET not set — nobody can sign in.');
-  if (!ENGINE_URL || !CLIENT_SECRET) console.warn('[sto-portal] ENGINE_URL / CLIENT_SECRET not set — no availability or rates.');
+  console.log(`[sto-portal] v${VERSION} on ${LISTEN_HOST || '*'}:${PORT} — app ${DIST_DIR}; Lodge Ops ${LODGEOPS_URL || '(unset)'}; engine ${cfg.engineUrl || '(not configured yet — Settings → STO Portal)'}`);
+  if (LODGEOPS_URL && STO_SECRET) {
+    void heartbeat();
+    setInterval(() => { void pullConfig().then(() => heartbeat()); }, CONFIG_PULL_MS).unref();
+  }
 });

@@ -19,4 +19,17 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.1',
+    version: '0.1.1',
+    date: '2026-09-05T12:46:22+02:00',
+    changes: [
+      {
+        headline:
+          'The portal is configured from Lodge Ops, not from its .env (Dave, 2026-09-05: \u201cMove the Lodge Ops STO settings from .env to a settings and hub page\u201d). The environment keeps only the road to Lodge Ops \u2014 PORT, LISTEN_HOST, TRUSTED_PROXY, DIST_DIR, LODGEOPS_URL, STO_KEY, STO_SECRET (and CONFIG_PULL_MS). Which engine to ask, the engine client the portal signs as and its secret, the rate limit, session hours and the public address all come from Lodge Ops \u2192 Settings \u2192 STO Portal, pulled on boot and every minute; the portal reports a heartbeat back so that page shows it is up, which version, and whether it can see the engine.',
+        detail:
+          'server.mjs: ENGINE_URL, CLIENT_KEY, CLIENT_SECRET, RATE_LIMIT and RATE_WINDOW_MS are gone from the environment; a mutable cfg {engineUrl, clientKey, clientSecret, rateLimit, rateWindowMs, sessionHours, portalUrl, at} is filled by pullConfig() \u2014 GET /api/sto-portal/config on Lodge Ops, signed with the portal key like every other call \u2014 awaited before listen() and again every CONFIG_PULL_MS (default 60 000, floor 1 000); the last good answer is kept when Lodge Ops is away, and changes are logged (the secret only as \'rotated\'). engine() signs with cfg; allow() rate-limits with cfg; heartbeat() POSTs {version, uptimeSec, url: cfg.portalUrl, listen, engineReachable (GET <engine>/api/health = 200), configAt} to /api/sto-portal/heartbeat after every pull. /health now also carries configAt and engineUrl. deploy/deploy.sh no longer fails when the engine link is missing \u2014 it says where to set it (Settings \u2192 STO Portal). deploy/sto.env.example, README and CLAUDE.md rewritten for the new split. Requires Lodge Ops 1.3.57 (migration 390). VERIFIED on the Lodge Ops e2e rig: case 95 (config pull signed / unsigned, heartbeat, a client-secret rotation from Lodge Ops picked up on the next pull, the hub page in Chromium).',
+      },
+    ],
+  },
 ];

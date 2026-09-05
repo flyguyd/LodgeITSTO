@@ -11,7 +11,8 @@
 #    3. rsync the built app, server.mjs and package.json into /opt/lodgeit-sto-portal
 #       (the installed .env is never touched)
 #    4. restart the lodgeit-sto-portal systemd service
-#    5. verify /health: ok, version matches, Lodge Ops + engine links configured
+#    5. verify /health: ok, version matches, the Lodge Ops link configured (the
+#       engine link comes from Lodge Ops → Settings → STO Portal, warned if missing)
 #
 #  The portal has no database of its own and no migrations: everything it
 #  shows comes from Lodge Ops (signed with the portal key) and the Booking
@@ -111,7 +112,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 !! ${ENV_FILE} does not exist. Files are installed, but the service was NOT
 !! (re)started. Create it from the example and fill it in:
      install -o ${SVC_USER} -g ${SVC_USER} -m 600 ${REPO_DIR}/deploy/sto.env.example ${ENV_FILE}
-     vi ${ENV_FILE}     # LODGEOPS_URL, STO_SECRET (Lodge Ops → STO → the portal card), ENGINE_URL, CLIENT_SECRET (engine client 'sto')
+     vi ${ENV_FILE}     # LODGEOPS_URL, STO_KEY, STO_SECRET (Lodge Ops → Settings → STO Portal); everything else is pulled from there
 !! then run this script again.
 EOF
   exit 1
@@ -153,7 +154,7 @@ FAIL=0
 if [[ "${OK}" != "true" ]]; then echo "!! Health reports ok=${OK:-false}." >&2; FAIL=1; fi
 if [[ "${LIVE_VERSION}" != "${APP_VERSION}" ]]; then echo "!! Running version ${LIVE_VERSION:-?} ≠ deployed ${APP_VERSION}." >&2; FAIL=1; fi
 if [[ "${LO_OK}" != "true" ]]; then echo "!! LODGEOPS_URL or STO_SECRET is not set in ${ENV_FILE} — nobody can sign in." >&2; FAIL=1; fi
-if [[ "${ENGINE_OK}" != "true" ]]; then echo "!! ENGINE_URL or CLIENT_SECRET is not set in ${ENV_FILE} — no availability or rates." >&2; FAIL=1; fi
+if [[ "${ENGINE_OK}" != "true" ]]; then echo "!! The portal has no engine link yet — set it on Lodge Ops → Settings → STO Portal (engine URL + Create client secret); the portal picks it up within a minute." >&2; fi
 if (( FAIL )); then
   echo "!! Deploy finished but the portal is not healthy — see above." >&2
   exit 1

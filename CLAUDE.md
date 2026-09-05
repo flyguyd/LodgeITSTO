@@ -27,8 +27,13 @@ scripts/  bump-version.mjs
   only for a session Lodge Ops has vouched for. Holds and reservations are
   made by Lodge Ops, never from here. Nothing is written to Cloudbeds.
 - **No payments here, no card details** (later, through the rate engine).
-- **Only wiring in the environment** (`deploy/sto.env.example`). Business
-  configuration comes from Lodge Ops.
+- **Only the road to Lodge Ops in the environment** (`deploy/sto.env.example`:
+  PORT, LISTEN_HOST, TRUSTED_PROXY, DIST_DIR, LODGEOPS_URL, STO_KEY,
+  STO_SECRET, CONFIG_PULL_MS). The engine link, the engine client secret, the
+  rate limit, session hours and the public address come from Lodge Ops →
+  Settings → STO Portal over `GET /api/sto-portal/config` (signed with the
+  portal key), pulled on boot and every minute; the portal reports a
+  heartbeat back (`POST /api/sto-portal/heartbeat`).
 - **The app builds without Lodge Ops.** `app/src/app/shared/` and
   `app/src/styles.scss` are COPIES of Lodge Ops' standard grid, grid-sort,
   slideout-exit and global styles. Keep them in step by hand when Lodge Ops
@@ -56,11 +61,11 @@ scripts/  bump-version.mjs
 
 ```bash
 cd app && npm ci && npm run build
-PORT=3300 LODGEOPS_URL=http://127.0.0.1:3000/api STO_KEY=sto-portal STO_SECRET=... \
-ENGINE_URL=http://127.0.0.1:3100 CLIENT_KEY=sto CLIENT_SECRET=... node server/src/server.mjs
+PORT=3300 LODGEOPS_URL=http://127.0.0.1:3000/api STO_KEY=sto-portal STO_SECRET=... node server/src/server.mjs
 ```
 
-The portal key and secret come from Lodge Ops → STO → *The STO portal* card
-(the secret is shown once); the `sto` engine client is created on the Lodge
-Ops Booking Engine page (Service clients card), never by hand in the engine
-database. Deploying: `deploy/deploy.sh` on the portal box (see README.md).
+The portal key and secret come from Lodge Ops → Settings → STO Portal (the
+secret is shown once); the same page creates the `sto` engine client and
+hands its secret to the portal on the next pull — never by hand in the engine
+database or in a file. Deploying: `deploy/deploy.sh` on the portal box (see
+README.md).

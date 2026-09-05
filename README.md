@@ -34,7 +34,7 @@ cp /root/BookingEngine/LodgeITSTO/deploy/lodgeit-sto-portal.service /etc/systemd
 systemctl daemon-reload && systemctl enable lodgeit-sto-portal
 mkdir -p /opt/lodgeit-sto-portal
 install -o oase -g oase -m 600 /root/BookingEngine/LodgeITSTO/deploy/sto.env.example /opt/lodgeit-sto-portal/.env
-vi /opt/lodgeit-sto-portal/.env             # LODGEOPS_URL, STO_SECRET, ENGINE_URL, CLIENT_SECRET
+vi /opt/lodgeit-sto-portal/.env             # LODGEOPS_URL, STO_KEY, STO_SECRET — nothing else
 /root/BookingEngine/LodgeITSTO/deploy/deploy.sh
 ```
 
@@ -46,15 +46,23 @@ For a local run: `cd app && npm ci && npm run build`, then
 `node server/src/server.mjs` with the env in the shell.
 
 Environment: see `deploy/sto.env.example`. `GET /health` says whether both links are
-configured. Rate-limited per client IP (`RATE_LIMIT` per `RATE_WINDOW_MS`).
+configured, and when the configuration was last pulled. Rate-limited per
+client IP with the limit set on Lodge Ops.
 
 ## Setting it up, once
 
-1. Lodge Ops → **STO** → *The STO portal* card: **Create secret** → paste
-   into `STO_SECRET`. Set the portal address there too (Lodge Ops links to it).
-2. On the Booking Engine register a client `sto` (`PUT /api/engine/clients/sto
-   {name, secret, active}`) → `CLIENT_KEY=sto`, `CLIENT_SECRET=…`.
-3. Create the operator and its users on the STO page; they sign in at `/login`.
+1. Lodge Ops → **Settings → STO Portal**: **Create secret** → paste into
+   `STO_SECRET` (the key id is `STO_KEY`). Set the portal address there too.
+2. On the same page: the engine URL (empty = the engine Lodge Ops uses) and
+   **Create client secret** — Lodge Ops registers the `sto` client on the
+   engine and hands the secret to the portal on its next pull. It is never
+   shown and never goes in a file.
+3. Create the operators and their users on the STO page; they sign in at `/login`.
+
+The portal pulls its configuration (`GET /api/sto-portal/config`, signed
+with the portal key) on boot and every minute, and reports a heartbeat
+(`POST /api/sto-portal/heartbeat`) that the settings page shows: version,
+uptime, whether it sees the engine, when it applied its config.
 
 ## Keeping it in step with Lodge Ops
 
