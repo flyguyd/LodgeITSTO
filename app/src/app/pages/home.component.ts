@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -63,6 +63,7 @@ const shadeFor = (free: number | null, total: number): string => {
             </div>
           </div>
           <p class="hm-dim">Free units across every suite you may sell, two months at a time. Darker is busier; a night with nothing left is marked.</p>
+          <p class="hm-pick" name="heatHint">{{ pickHint() }}</p>
           @if (heatError(); as he) { <p class="hm-err">{{ he }}</p> }
           <div class="hm-months" [class.hm-loading]="heatLoading()">
             @for (m of heatMonths(); track m.key) {
@@ -72,10 +73,10 @@ const shadeFor = (free: number | null, total: number): string => {
                   @for (d of DOW; track d) { <span class="hm-dow">{{ d }}</span> }
                   @for (c of m.cells; track $index) {
                     @if (c) {
-                      <div class="hm-cell" [class.none]="c.free === 0" [class.unknown]="c.free === null" [class.past]="c.past" [style.background]="c.shade" [attr.data-date]="c.date" [attr.data-free]="c.free" [title]="c.title">
+                      <button type="button" class="hm-cell" [class.none]="c.free === 0" [class.unknown]="c.free === null" [class.past]="c.past" [class.picked]="inPick(c.date)" [class.first]="pickFrom() === c.date" [style.background]="c.shade" [attr.data-date]="c.date" [attr.data-free]="c.free" [title]="c.title" [disabled]="c.past" (click)="pickDay(c.date)" (mouseenter)="pickHover.set(c.date)" (mouseleave)="pickHover.set('')">
                         <span class="hm-day">{{ c.num }}</span>
                         <span class="hm-free">{{ c.freeText }}</span>
-                      </div>
+                      </button>
                     } @else { <div class="hm-cell hm-blank"></div> }
                   }
                 </div>
@@ -87,6 +88,24 @@ const shadeFor = (free: number | null, total: number): string => {
             @for (k of legend(); track k.label) { <span class="hm-keyitem"><i [style.background]="k.shade"></i>{{ k.label }}</span> }
           </div>
         </div>
+
+        <!-- TWO CLICKS ON THE HEAT MAP MAKE A STAY (Dave, 2026-09-06): the
+             second click opens this, and the button carries the dates to the
+             New booking page rather than making anyone re-type them. -->
+        @if (stay(); as st) {
+          <div class="hm-modal" (click)="clearPick()">
+            <div class="hm-modalbox" role="dialog" aria-modal="true" aria-label="Book these dates" (click)="$event.stopPropagation()">
+              <button type="button" class="hm-x" name="stayClose" aria-label="Close" (click)="clearPick()">✕</button>
+              <h3>Book these dates</h3>
+              <p class="hm-stayline">Check in <b>{{ st.from | date: 'EEE d MMM yyyy' }}</b> → check out <b>{{ st.to | date: 'EEE d MMM yyyy' }}</b></p>
+              <p class="hm-dim">{{ st.nights }} night{{ st.nights === 1 ? '' : 's' }}{{ st.freeText }}</p>
+              <div class="hm-stayacts">
+                <button type="button" class="oa-btn" name="stayCancel" (click)="clearPick()">Pick again</button>
+                <a class="oa-btn oa-btn-primary" name="stayBook" routerLink="/new" [queryParams]="{ from: st.from, to: st.to }">Create a booking for these dates</a>
+              </div>
+            </div>
+          </div>
+        }
 
         <h2>Next arrivals</h2>
         @for (b of s.upcoming; track b.id) {
@@ -135,6 +154,20 @@ const shadeFor = (free: number | null, total: number): string => {
       .hm-cell.none { border-color: #9a3b2e; }
       .hm-cell.unknown { background: repeating-linear-gradient(45deg, var(--oa-surface-2), var(--oa-surface-2) 3px, var(--oa-border) 3px, var(--oa-border) 4px); }
       .hm-cell.past { opacity: 0.4; }
+      /* the cells are BUTTONS now (two clicks make a stay) — put the browser's
+         button styling back to the card look it had as a div */
+      button.hm-cell { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; appearance: none; }
+      button.hm-cell:disabled { cursor: default; }
+      button.hm-cell:not(:disabled):hover { border-color: var(--oa-accent); }
+      .hm-cell.picked { outline: 2px solid var(--oa-accent); outline-offset: -2px; }
+      .hm-cell.first { outline-width: 3px; }
+      .hm-pick { margin: 6px 0 0; font-size: 12.5px; color: var(--oa-accent); }
+      .hm-modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 60; }
+      .hm-modalbox { position: relative; background: var(--oa-card-bg); border: 1px solid var(--oa-card-border); border-radius: var(--oa-card-radius); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35); padding: 20px 22px; max-width: 420px; width: 100%; }
+      .hm-modalbox h3 { margin: 0 0 8px; font-size: 17px; }
+      .hm-stayline { margin: 0 0 2px; font-size: 15px; }
+      .hm-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--oa-text-dim); font-size: 15px; cursor: pointer; line-height: 1; padding: 4px; }
+      .hm-stayacts { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
       .hm-day { font-size: 11px; }
       .hm-free { font-size: 10.5px; color: var(--oa-text-dim); text-align: right; }
       .hm-cell.none .hm-free { color: #9a3b2e; font-weight: 700; }
@@ -159,15 +192,80 @@ export class HomeComponent implements OnInit {
   readonly heatError = signal('');
   readonly catalog = signal<Catalog | null>(null);
   private heatSeq = 0;
+  /** TWO CLICKS MAKE A STAY (Dave, 2026-09-06). THE CLICKED DAYS ARE THE
+   *  DATES THEMSELVES: the earlier one is check-IN, the later one is
+   *  check-OUT, whichever order they are clicked in — the same convention as
+   *  the suite calendar on both New booking pages. The cells outlined are the
+   *  NIGHTS, check-in up to the day before check-out, because those are the
+   *  nights that would be paid for. The same day twice cannot be a stay, so it
+   *  is ignored and the map keeps waiting for a check-out day. */
+  readonly pickFrom = signal('');
+  readonly pickTo = signal('');
+  readonly pickHover = signal('');
   /** How many units the lodge HAS — Lodge Ops' figure, from the catalogue, so
    *  the shade is a real proportion rather than a guess from the busiest day. */
   readonly totalUnits = computed(() => (this.catalog()?.suites ?? []).reduce((n, x) => n + (x.unitsTotal ?? x.roomCount ?? 0), 0));
+
+  /** The stay the two clicks describe, once both are in. */
+  readonly stay = computed(() => {
+    const a = this.pickFrom();
+    const b = this.pickTo();
+    if (!a || !b || a === b) return null;
+    const first = a < b ? a : b;
+    const to = a < b ? b : a;
+    const nights = Math.round((Date.parse(to) - Date.parse(first)) / 86400e3);
+    const days = this.heat()?.days ?? {};
+    let least: number | null = null;
+    for (let d = new Date(`${first}T00:00:00Z`); d.toISOString().slice(0, 10) < to; d.setUTCDate(d.getUTCDate() + 1)) {
+      const free = days[d.toISOString().slice(0, 10)]?.free ?? null;
+      if (free == null) { least = null; break; }
+      least = least == null ? free : Math.min(least, free);
+    }
+    return { from: first, to, nights, freeText: least == null ? '' : ` · ${least} unit${least === 1 ? '' : 's'} free on the tightest night` };
+  });
 
   ngOnInit(): void {
     this.api.summary().subscribe({ next: (s) => this.summary.set(s), error: (e) => this.error.set(e?.error?.message ?? 'The portal could not load your summary.') });
     this.api.me().subscribe({ next: (m) => this.auth.update({ user: { ...m.user, stoId: m.company.id }, company: m.company }), error: () => undefined });
     this.api.catalog().subscribe({ next: (c) => this.catalog.set(c), error: () => this.catalog.set(null) });
     this.loadHeat();
+  }
+
+  /** Is this day inside the stay, or inside the range being hovered out? */
+  inPick(date: string): boolean {
+    const a = this.pickFrom();
+    if (!a) return false;
+    const b = this.pickTo() || this.pickHover();
+    if (!b || b === a) return date === a;
+    // b would be CHECK-OUT, so the nights marked stop the day before it.
+    const lo = a < b ? a : b;
+    const hi = a < b ? b : a;
+    return date >= lo && date < hi;
+  }
+
+  /** The line under the grid that says what a click will do next. */
+  pickHint(): string {
+    if (this.stay()) return 'Those are the dates — the box asks what to do with them.';
+    if (this.pickFrom()) return 'Now click the CHECK-OUT day — the day the guest leaves.';
+    return 'Click the check-in day and then the check-out day, and you can book those dates straight from here.';
+  }
+
+  pickDay(date: string): void {
+    if (this.stay()) { this.pickFrom.set(date); this.pickTo.set(''); return; }
+    if (!this.pickFrom()) { this.pickFrom.set(date); this.pickTo.set(''); return; }
+    if (this.pickFrom() === date) return;
+    this.pickTo.set(date);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.pickFrom() || this.pickTo()) this.clearPick();
+  }
+
+  clearPick(): void {
+    this.pickFrom.set('');
+    this.pickTo.set('');
+    this.pickHover.set('');
   }
 
   setHeatMonth(m: string): void {

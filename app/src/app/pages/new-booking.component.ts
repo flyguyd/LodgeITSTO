@@ -1,9 +1,12 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money, refundLabel } from '../core/portal-api.service';
 import { PortalAuthService } from '../core/portal-auth.service';
+
+/** A date the heat map may hand this page in the URL. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const plusDays = (from: string, n: number) => { const d = new Date(`${from}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
@@ -183,7 +186,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
             <div>
               <h2>{{ suiteOf(cal.roomTypeId)?.name || 'Suite' }} — availability and rates</h2>
               <p class="nb-dim">Free units and your nightly rate ({{ discountPct() }}% off the published figure, VAT in) for {{ adults() }} {{ adults() === 1 ? 'adult' : 'adults' }}{{ children() ? ', ' + children() + (children() === 1 ? ' child' : ' children') : '' }}. @if (calPlanName(); as pn) { Plan: <b>{{ pn }}</b>. } @else { The cheapest plan each night. } The requested nights are outlined in gold.</p>
-              <p class="nb-cal-hint">{{ calPick() ? 'Now click the LAST night of the stay — click the same night again for one night.' : 'Click a night to move the stay: the first night, then the last.' }}</p>
+              <p class="nb-cal-hint">{{ calPick() ? 'Now click the CHECK-OUT day — the day the guest leaves.' : 'Click a day to move the stay: check-in, then check-out.' }}</p>
             </div>
             <button type="button" class="nb-cal-close" (click)="closeCalendar()" aria-label="Close">✕</button>
           </header>
@@ -322,6 +325,7 @@ export class NewBookingComponent implements OnInit {
   private readonly api = inject(PortalApiService);
   private readonly auth = inject(PortalAuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   readonly DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   readonly catalog = signal<Catalog | null>(null);
   readonly catalogError = signal('');
@@ -386,6 +390,17 @@ export class NewBookingComponent implements OnInit {
   readonly canBook = computed(() => this.canHold());
 
   ngOnInit(): void {
+    // ARRIVING FROM THE HEAT MAP (Dave, 2026-09-06: two clicks on the home
+    // page's availability map, then "Create a booking for these dates"). The
+    // dates come as query params; anything malformed is simply ignored and the
+    // page opens on its usual default rather than refusing to load.
+    const q = this.route.snapshot.queryParamMap;
+    const qFrom = String(q.get('from') ?? '');
+    const qTo = String(q.get('to') ?? '');
+    if (ISO_DATE.test(qFrom) && ISO_DATE.test(qTo) && qTo > qFrom) {
+      this.from.set(qFrom);
+      this.to.set(qTo);
+    }
     this.api.catalog().subscribe({
       next: (c) => { this.catalog.set(c); if (c.suites.length === 1) this.setLine(0, 'roomTypeId', c.suites[0].id); this.refreshAvailability(); },
       error: (e) => this.catalogError.set(e?.error?.message ?? 'The lodge could not be reached.'),
@@ -582,19 +597,23 @@ export class NewBookingComponent implements OnInit {
   /**
    * CLICK THE STAY OUT ON THE CALENDAR (Dave, 2026-09-06: "allow the user to
    * adjust the search date by clicking on a day moving to another day and
-   * clicking again"). The cells are NIGHTS, so the two clicks are the first
-   * and the last night — check-out is the morning after the last one, and
-   * clicking the same night twice is a one-night stay. Either order works.
+   * clicking again"). THE TWO CLICKED DAYS ARE THE DATES THEMSELVES (Dave,
+   * 2026-09-06): the earlier one is check-IN, the later one is check-OUT,
+   * whichever order they are clicked in. The nights outlined are therefore
+   * check-in up to the day BEFORE check-out — the nights that are paid for.
+   * Clicking the same day twice cannot be a stay, so it is ignored and the
+   * page keeps waiting for a check-out day.
    */
   pickDay(c: CalCell): void {
     if (c.past) return;
     const first = this.calPick();
     if (!first) { this.calPick.set(c.date); this.calHover.set(c.date); return; }
-    const lo = first <= c.date ? first : c.date;
-    const hi = first <= c.date ? c.date : first;
+    if (first === c.date) return;
+    const lo = first < c.date ? first : c.date;
+    const hi = first < c.date ? c.date : first;
     this.calPick.set(''); this.calHover.set('');
     this.from.set(lo);
-    this.to.set(plusDays(hi, 1));
+    this.to.set(hi);
     this.requote();
   }
   shiftCalendar(by: number): void { const cal = this.calOpen(); if (!cal) return; this.calOpen.set({ ...cal, month: addMonths(cal.month, by) }); this.loadCalendar(); }
@@ -625,9 +644,12 @@ export class NewBookingComponent implements OnInit {
     const currency = data?.currency || this.catalog()?.currency || 'ZAR';
     // The provisional range while the stay is being clicked out: the first
     // night and wherever the pointer is, in either order.
+    // The pointer's day would be CHECK-OUT, so the nights previewed stop the
+    // day before it; with only one click the clicked day stands alone.
     const pick = this.calPick(), over = this.calHover() || pick;
     const pickLo = pick ? (pick <= over ? pick : over) : '';
-    const pickHi = pick ? (pick <= over ? over : pick) : '';
+    const pickEnd = pick ? (pick <= over ? over : pick) : '';
+    const pickHi = pickEnd && pickEnd > pickLo ? plusDays(pickEnd, -1) : pickEnd;
     return [cal.month, addMonths(cal.month, 1)].map((m) => {
       const first = new Date(`${m}-01T00:00:00Z`);
       const lead = (first.getUTCDay() + 6) % 7;

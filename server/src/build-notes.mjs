@@ -84,4 +84,12 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.6',
+    version: '0.1.6',
+    date: '2026-09-06T10:50:00+02:00',
+    changes: [
+      { headline: 'A stay is now clicked out as CHECK-IN and CHECK-OUT rather than as first and last night (Dave, 2026-09-06: \u201ctreat the earlier date as the check in date and the later date as the check out date\u201d) \u2014 on the availability calendar of BOTH new booking pages and on the STO portal\u2019s home-page heat map. Click two days in either order: the earlier one is check-in, the later one is check-out, and the nights outlined run from check-in to the day BEFORE check-out, because those are the nights that are paid for. Checking in and out on the same day is not a stay, so a second click on the same day is ignored and the page keeps asking. ALSO: two clicks on the STO portal\u2019s heat map now open a box offering \u201cCreate a booking for these dates\u201d, which opens the New booking page already on those dates.', detail: 'Pairs with Lodge Ops 1.3.63; no engine change. THE HEAT MAP BOOKS: the cells are BUTTONS now (browser button styling reset back to the card look, past days disabled), pickFrom/pickTo/pickHover hold the two clicks, and stay() turns them into {from, to, nights} plus the tightest night\u2019s free units read out of the heat map data already on the page \u2014 no second call to the engine to open the box. The box is a plain overlay with \u201cPick again\u201d, a \u2715 and a routerLink to /new carrying from and to; Escape and a click on the backdrop both clear the pick. NewBookingComponent reads those two query params in ngOnInit through ActivatedRoute.snapshot and applies them only when both are ISO dates and to > from \u2014 anything malformed is ignored and the page opens on its usual default rather than refusing to load. THE CONVENTION: pickDay() on the suite calendar matches Lodge Ops exactly \u2014 the two clicked days are check-in and check-out, sorted, the same day twice ignored, and the hover preview stopping the day before the pointer. VERIFIED on the Lodge Ops e2e rig (case 95, 152 checks): 95.91f one click marks check-in and asks for check-out with no box yet, 95.91g the same day twice ignored, 95.91h the box for a three-night stay with the three NIGHTS still marked, 95.91i the button carrying both dates, 95.91j the New booking page opening on those dates priced and ready with nothing typed, 95.93b/c/d the suite calendar under the new reading (one night at R4,140, and check-out clicked first reading the same).' },
+    ],
+  },
 ];
