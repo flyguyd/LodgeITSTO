@@ -3,6 +3,8 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { FormsModule } from '@angular/forms';
 import { PortalApiService } from './core/portal-api.service';
 import { PortalAuthService } from './core/portal-auth.service';
+import { PortalChatService } from './core/portal-chat.service';
+import { ChatPanelComponent } from './shared/chat-panel.component';
 
 /**
  * The STO portal shell (Dave, 2026-09-05): a PINNED COMMAND BAR along the
@@ -14,7 +16,7 @@ import { PortalAuthService } from './core/portal-auth.service';
 @Component({
   selector: 'sto-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule, ChatPanelComponent],
   template: `
     @if (auth.signedIn() && !onLogin()) {
       <header class="pb">
@@ -43,10 +45,18 @@ import { PortalAuthService } from './core/portal-auth.service';
           <span class="pb-clock" [title]="'Your local time'">{{ clock() }}</span>
           <span class="pb-who"><b>{{ auth.company()?.name }}</b><small>{{ auth.user()?.name }} · {{ auth.company()?.discountPct }}% off</small></span>
           @if (company()?.logo) { <button type="button" class="oa-btn pb-btn" name="logoClear" (click)="clearLogo()" [disabled]="logoBusy()" title="Remove your logo">Remove logo</button> }
+          <!-- "Chat with 7 Star" (Dave, 2026-09-06): the chat lives on the
+               command bar, not behind a floating icon. -->
+          <button type="button" class="oa-btn pb-btn pb-chat" name="chatWith7Star" (click)="chat.toggle()" [class.on]="chat.open()" title="Talk to the lodge's reservations desk">
+            Chat with 7 Star
+            @if (chat.unread()) { <span class="pb-badge">{{ chat.unread() }}</span> }
+          </button>
+          <a class="oa-btn pb-btn" routerLink="/help" routerLinkActive="on" title="How to use the portal">Help</a>
           <a class="oa-btn pb-btn" routerLink="/account" title="Your account">Account</a>
           <button type="button" class="oa-btn pb-btn" (click)="signOut()">Sign out</button>
         </div>
       </header>
+      <sto-chat-panel />
     }
     <main class="sto-main" [class.no-bar]="!auth.signedIn() || onLogin()">
       <router-outlet />
@@ -76,6 +86,9 @@ import { PortalAuthService } from './core/portal-auth.service';
       .pb-who { display: flex; flex-direction: column; line-height: 1.15; text-align: right; }
       .pb-who small { color: var(--oa-text-dim); font-size: 11.5px; }
       .pb-btn { padding: 6px 10px; font-size: 13px; text-decoration: none; }
+      .pb-btn.on { background: rgba(83, 102, 58, 0.14); color: var(--oa-accent-strong); }
+      .pb-chat { position: relative; }
+      .pb-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--oa-danger); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
       .no-bar { padding-top: 0; }
       @media (max-width: 900px) { .pb-search, .pb-clock { display: none; } .pb { gap: 10px; } }
     `,
@@ -83,6 +96,7 @@ import { PortalAuthService } from './core/portal-auth.service';
 })
 export class AppComponent {
   readonly auth = inject(PortalAuthService);
+  readonly chat = inject(PortalChatService);
   private readonly api = inject(PortalApiService);
   private readonly router = inject(Router);
   /** The picture is shrunk HERE, in the browser, before it is ever sent: a
@@ -172,6 +186,7 @@ export class AppComponent {
     void this.router.navigate(['/bookings'], { queryParams: { q: this.q().trim() || null } });
   }
   signOut(): void {
+    this.chat.reset();
     this.auth.clear();
     void this.router.navigate(['/login']);
   }

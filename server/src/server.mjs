@@ -355,7 +355,9 @@ async function heatmap(q) {
 }
 
 // ---- the server ----------------------------------------------------------------
-const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert|sheet)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/(cancel|sheet))$/;
+// chat/* is "Chat with 7 Star" (Dave, 2026-09-06): the agent's own thread
+// with the lodge's desk, relayed like everything else — signed, with their token.
+const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert|sheet)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/(cancel|sheet)|chat\/(start|send|poll|typing|close))$/;
 const server = createServer(async (req, res) => {
   const url = req.url ?? '/';
   const method = (req.method ?? 'GET').toUpperCase();

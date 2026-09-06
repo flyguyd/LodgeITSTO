@@ -85,6 +85,21 @@ export interface Booking {
   holdId: string | null; notes: string | null; cancelReason: string | null; cancelledAt: string | null; cancelledBy: string | null; createdAt: string; updatedAt: string; userName: string | null;
 }
 export interface Price { from: string; to: string; nights: number; currency: string; planId: string; planName: string; discountPct: number; lines: (SuiteLine & { unitsFree: number | null; available: boolean })[]; rackTotal: number; total: number; available: boolean; }
+/** "Chat with 7 Star" (Dave, 2026-09-06): the agent's view of their thread with the lodge's desk — the same shape the website's chat panel reads. */
+export interface ChatMessage { id: string; from: 'visitor' | 'staff'; senderLabel: string; body: string; createdAt: string }
+export interface ChatView {
+  conversationId: string;
+  token: string;
+  status: 'open' | 'closed';
+  claimed: boolean;
+  answeredBy: string | null;
+  answeredByAvatar: string | null;
+  answeredByInitials: string | null;
+  agentsOnline: number;
+  staffTyping: boolean;
+  messages: ChatMessage[];
+}
+
 export interface Summary {
   logins: number; searches: number;
   holds: { count: number; value: number; cancelled: number; expired: number; converted: number; open: number; openValue: number };
@@ -153,6 +168,12 @@ export class PortalApiService {
   me(): Observable<{ user: PortalUser; company: PortalCompany }> { return this.http.get<{ user: PortalUser; company: PortalCompany }>('/api/lo/me'); }
   changePassword(current: string, next: string): Observable<{ ok: boolean; message?: string }> { return this.http.post<{ ok: boolean; message?: string }>('/api/lo/me/password', { current, next }); }
   summary(): Observable<Summary> { return this.http.get<Summary>('/api/lo/summary'); }
+  // ---- Chat with 7 Star ----
+  chatStart(): Observable<ChatView> { return this.http.post<ChatView>('/api/lo/chat/start', {}); }
+  chatSend(token: string, body: string): Observable<ChatView> { return this.http.post<ChatView>('/api/lo/chat/send', { token, body }); }
+  chatPoll(token: string, since?: string | null): Observable<ChatView> { return this.http.post<ChatView>('/api/lo/chat/poll', since ? { token, since } : { token }); }
+  chatTyping(token: string, typing: boolean): Observable<{ ok: true }> { return this.http.post<{ ok: true }>('/api/lo/chat/typing', { token, typing }); }
+  chatClose(token: string): Observable<{ ok: true }> { return this.http.post<{ ok: true }>('/api/lo/chat/close', { token }); }
   catalog(): Observable<Catalog> { return this.http.get<Catalog>('/api/lo/catalog'); }
   availability(from: string, to: string): Observable<{ suites: Record<string, number | null> }> { return this.http.get<{ suites: Record<string, number | null> }>('/api/engine/availability', { params: this.params({ from, to }) }); }
   quote(body: { roomTypeIds: string[]; from: string; to: string; adults: number; children: number; infants: number }): Observable<Quote> { return this.http.post<Quote>('/api/engine/quote', body); }
