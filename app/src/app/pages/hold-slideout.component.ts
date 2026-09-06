@@ -43,8 +43,23 @@ import { DETAIL_STYLES } from './detail-styles';
         @if (x.active) {
           <div class="sd-actions">
             <button type="button" class="oa-btn oa-btn-primary" (click)="convertOpen.set(!convertOpen())">Make the booking</button>
-            <button type="button" class="oa-btn oa-btn-danger" [disabled]="busy()" (click)="cancel()">Cancel the hold</button>
+            <button type="button" class="oa-btn oa-btn-danger" [disabled]="busy()" (click)="cancelOpen.set(!cancelOpen()); convertOpen.set(false)">Cancel the hold</button>
           </div>
+          @if (cancelOpen()) {
+            <div class="sd-form">
+              <b>Cancel hold {{ x.reference }}</b>
+              <p class="sd-dim">The nights go straight back on sale. The note is kept on the hold and read by the lodge, so say why.</p>
+              <label class="sd-field">
+                <span>Please add any note about the cancellation here <i class="sd-req">*</i></span>
+                <textarea class="oa-input sd-note" name="cancelNote" maxlength="500" [ngModel]="cancelNote()" (ngModelChange)="cancelNote.set($event)"></textarea>
+              </label>
+              <div class="sd-actions">
+                <button type="button" class="oa-btn" [disabled]="busy()" (click)="cancelOpen.set(false); cancelNote.set('')">Back</button>
+                <button type="button" class="oa-btn oa-btn-danger" name="cancelConfirm" [disabled]="busy() || !cancelNote().trim()" (click)="cancel()">{{ busy() ? 'Cancelling…' : 'Confirm — cancel the hold' }}</button>
+              </div>
+              @if (!cancelNote().trim()) { <p class="sd-warn">A note is needed before the hold can be cancelled.</p> }
+            </div>
+          }
           @if (convertOpen()) {
             <div class="sd-form">
               <b>The guest</b>
@@ -95,6 +110,11 @@ export class HoldSlideoutComponent implements OnInit, OnDestroy {
   readonly busy = signal(false);
   readonly timer = signal('');
   readonly convertOpen = signal(false);
+  /** CANCELLING SAYS WHY (Dave, 2026-09-06): the note is required, so the
+   *  browser prompt (which took an optional reason, and none was ever typed)
+   *  is gone in favour of a field on the panel. */
+  readonly cancelOpen = signal(false);
+  readonly cancelNote = signal('');
   readonly g = signal({ firstName: '', lastName: '', email: '', phone: '', street: '', apartment: '', city: '', postCode: '', state: '', country: '' });
   private tick: ReturnType<typeof setInterval> | null = null;
 
@@ -139,11 +159,14 @@ export class HoldSlideoutComponent implements OnInit, OnDestroy {
   setG(k: 'firstName' | 'lastName' | 'email' | 'phone' | 'street' | 'apartment' | 'city' | 'postCode' | 'state' | 'country', v: string): void { this.g.set({ ...this.g(), [k]: v }); }
   cancel(): void {
     const h = this.h();
-    if (!h) return;
-    const reason = prompt(`Cancel hold ${h.reference}? The nights go back on sale. Reason (optional):`);
-    if (reason === null) return;
+    const note = this.cancelNote().trim();
+    if (!h || !note) return;
     this.busy.set(true);
-    this.api.cancelHold(h.id, reason.trim() || null).subscribe({ next: (x) => { this.busy.set(false); this.h.set(x); this.changed.emit(); }, error: (e) => { this.busy.set(false); this.error.set(e?.error?.message ?? 'Not cancelled.'); } });
+    this.error.set('');
+    this.api.cancelHold(h.id, note).subscribe({
+      next: (x) => { this.busy.set(false); this.cancelOpen.set(false); this.cancelNote.set(''); this.h.set(x); this.changed.emit(); },
+      error: (e) => { this.busy.set(false); this.error.set(e?.error?.message ?? 'Not cancelled.'); },
+    });
   }
   convert(): void {
     const h = this.h();

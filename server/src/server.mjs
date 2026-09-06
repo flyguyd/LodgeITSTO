@@ -283,6 +283,50 @@ async function calendar(q) {
   };
 }
 
+/**
+ * THE HEAT MAP (Dave, 2026-09-06): "a heat map calendar for guest suites
+ * availability over the next 2 months". One figure per DAY across every suite
+ * the channel sells — units free and units in total — so the app can colour a
+ * grid from full to empty. Same road as everything else here: the STO channel,
+ * asked a month at a time, and nothing else.
+ */
+async function heatmap(q) {
+  const { from, to } = q;
+  if (!ISO.test(from) || !ISO.test(to) || to <= from) return { status: 400, body: { message: 'A date span is needed.' } };
+  const span = daysBetween(from, to);
+  if (span.length > 100) return { status: 400, body: { message: 'At most 100 nights per heat map.' } };
+  const days = {};
+  for (const d of span) days[d] = { free: null, units: 0, unknown: true };
+  let channel = null;
+  const suites = new Map();
+  for (let start = 0; start < span.length; start += 31) {
+    const chunk = span.slice(start, start + 31);
+    const chunkTo = (() => { const d = new Date(`${chunk[chunk.length - 1]}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+    const out = await channelQuote({ from: chunk[0], to: chunkTo, scan: true, stoKey: q.stoKey });
+    if (out.status !== 200) return out;
+    channel = out.body?.channel ?? channel;
+    for (const [id, sum] of Object.entries(out.body?.suites ?? {})) {
+      if (!suites.has(id)) suites.set(id, sum?.name ?? id);
+      const nightly = sum?.nightsFree ?? {};
+      for (const d of chunk) {
+        const n = nightly[d];
+        if (!(d in days)) continue;
+        if (Number.isFinite(Number(n))) {
+          days[d].free = (days[d].free ?? 0) + Number(n);
+          days[d].unknown = false;
+        }
+      }
+    }
+  }
+  // FREE UNITS ONLY. How many units the lodge HAS is Lodge Ops' figure, not
+  // the engine's — the app already holds it in its catalogue (unitsTotal per
+  // suite) and works the shade out from that, so nothing here has to guess a
+  // capacity from the busiest day it happened to see.
+  const out = {};
+  for (const [date, d] of Object.entries(days)) out[date] = { free: d.unknown ? null : d.free };
+  return { status: 200, body: { ok: true, from, to, suites: [...suites.keys()], channel, days: out } };
+}
+
 // ---- the server ----------------------------------------------------------------
 const LO_ALLOW = /^\/(me|me\/password|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/cancel)$/;
 const server = createServer(async (req, res) => {
@@ -374,6 +418,11 @@ const server = createServer(async (req, res) => {
               }]
             : [],
         });
+        return;
+      }
+      if (clean === '/api/engine/heatmap' && method === 'GET') {
+        const out = await heatmap({ from: params.get('from') ?? '', to: params.get('to') ?? '', stoKey: s.stoKey });
+        json(res, out.status, out.body);
         return;
       }
       if (clean === '/api/engine/calendar' && method === 'GET') {

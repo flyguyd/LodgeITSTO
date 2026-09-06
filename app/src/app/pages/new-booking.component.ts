@@ -102,14 +102,14 @@ interface SuiteLine { roomTypeId: string; units: number; }
 
         <div class="nb-card">
           <h2>The guest</h2>
-          <p class="nb-dim">Needed to make the booking; a hold may be taken without a name.</p>
+          <p class="nb-dim">Name, e-mail, phone and country are needed before a hold can be taken or a booking made.</p>
           <div class="nb-row">
-            <label class="nb-field"><span>First name</span><input class="oa-input" type="text" name="firstName" maxlength="120" [ngModel]="firstName()" (ngModelChange)="firstName.set($event)" /></label>
-            <label class="nb-field"><span>Last name</span><input class="oa-input" type="text" name="lastName" maxlength="120" [ngModel]="lastName()" (ngModelChange)="lastName.set($event)" /></label>
+            <label class="nb-field"><span>First name <i class="nb-req">*</i></span><input class="oa-input" type="text" name="firstName" maxlength="120" [ngModel]="firstName()" (ngModelChange)="firstName.set($event)" /></label>
+            <label class="nb-field"><span>Last name <i class="nb-req">*</i></span><input class="oa-input" type="text" name="lastName" maxlength="120" [ngModel]="lastName()" (ngModelChange)="lastName.set($event)" /></label>
           </div>
           <div class="nb-row">
-            <label class="nb-field"><span>E-mail</span><input class="oa-input" type="email" name="email" maxlength="255" [ngModel]="email()" (ngModelChange)="email.set($event)" /></label>
-            <label class="nb-field"><span>Phone</span><input class="oa-input" type="tel" name="phone" maxlength="60" [ngModel]="phone()" (ngModelChange)="phone.set($event)" /></label>
+            <label class="nb-field"><span>E-mail <i class="nb-req">*</i></span><input class="oa-input" type="email" name="email" maxlength="255" [ngModel]="email()" (ngModelChange)="email.set($event)" /></label>
+            <label class="nb-field"><span>Phone <i class="nb-req">*</i></span><input class="oa-input" type="tel" name="phone" maxlength="60" [ngModel]="phone()" (ngModelChange)="phone.set($event)" /></label>
           </div>
           <h3 class="nb-h3">Address</h3>
           <div class="nb-row">
@@ -122,7 +122,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
           </div>
           <div class="nb-row">
             <label class="nb-field"><span>State / province</span><input class="oa-input" type="text" name="state" maxlength="120" [ngModel]="state()" (ngModelChange)="state.set($event)" /></label>
-            <label class="nb-field"><span>Country</span><input class="oa-input" type="text" name="country" maxlength="80" [ngModel]="country()" (ngModelChange)="country.set($event)" /></label>
+            <label class="nb-field"><span>Country <i class="nb-req">*</i></span><input class="oa-input" type="text" name="country" maxlength="80" [ngModel]="country()" (ngModelChange)="country.set($event)" /></label>
           </div>
           <label class="nb-field"><span>Notes for the lodge</span><textarea class="oa-input nb-notes" name="notes" maxlength="4000" [ngModel]="notes()" (ngModelChange)="notes.set($event)"></textarea></label>
 
@@ -136,6 +136,9 @@ interface SuiteLine { roomTypeId: string; units: number; }
             </div>
           </div>
           @if (error()) { <p class="nb-err">{{ error() }}</p> }
+          @if (stayReady() && guestMissing().length) {
+            <p class="nb-warn nb-need">Still needed before a hold or a booking: {{ guestMissing().join(', ') }}.</p>
+          }
           <div class="nb-actions">
             <a class="oa-btn" routerLink="/">Back</a>
             <span class="nb-spacer"></span>
@@ -236,6 +239,8 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-notes { min-height: 64px; resize: vertical; }
       .nb-dim { color: var(--oa-text-dim); font-size: 13px; }
       .nb-warn { color: #705003; font-size: 13px; margin: 0 0 10px; }
+      .nb-req { color: #9a3b2e; font-style: normal; font-weight: 700; }
+      .nb-need { margin: 8px 0 0; }
       .nb-err { color: var(--oa-danger); font-size: 13.5px; margin: 8px 0; }
       .nb-plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 10px; }
       /* The card and its "i" are SIBLINGS: a button cannot legally contain
@@ -361,11 +366,24 @@ export class NewBookingComponent implements OnInit {
   readonly holdHours = computed(() => this.catalog()?.holdHours ?? this.auth.company()?.holdHours ?? 48);
   readonly nights = computed(() => { const a = Date.parse(this.from()), b = Date.parse(this.to()); return Number.isFinite(a) && Number.isFinite(b) && b > a ? Math.round((b - a) / 86400e3) : 0; });
   readonly chosenLines = computed(() => this.lines().filter((l) => !!l.roomTypeId));
-  readonly canHold = computed(() => {
+  /** THE GUEST IS NAMED BEFORE ANYTHING IS TAKEN (Dave, 2026-09-06): first
+   *  name, last name, e-mail, phone and country are all required before EITHER
+   *  button wakes — a hold with nobody's name on it is a room nobody can chase. */
+  readonly guestMissing = computed(() => {
+    const missing: string[] = [];
+    if (!this.firstName().trim()) missing.push('First name');
+    if (!this.lastName().trim()) missing.push('Last name');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(this.email().trim())) missing.push(this.email().trim() ? 'a valid E-mail address' : 'E-mail address');
+    if (!this.phone().trim()) missing.push('Phone number');
+    if (!this.country().trim()) missing.push('Country');
+    return missing;
+  });
+  readonly stayReady = computed(() => {
     const chosen = this.chosenLines();
     return chosen.length > 0 && chosen.length === this.lines().length && this.nights() > 0 && !!this.planId() && this.sellable(this.planId()) && !chosen.some((l) => !!this.overCapacityFor(l));
   });
-  readonly canBook = computed(() => this.canHold() && !!(this.firstName().trim() || this.lastName().trim()));
+  readonly canHold = computed(() => this.stayReady() && this.guestMissing().length === 0);
+  readonly canBook = computed(() => this.canHold());
 
   ngOnInit(): void {
     this.api.catalog().subscribe({
@@ -483,6 +501,8 @@ export class NewBookingComponent implements OnInit {
   totalText(): string { const sum = this.planId() ? this.stoSum(this.planId()) : null; return sum != null ? money(sum, this.catalog()?.currency) : '—'; }
 
   private stayInput(): StayInput {
+    // The guest is required now (Dave, 2026-09-06), so it always travels; the
+    // conditional stays only so a half-filled form cannot post a hollow guest.
     const guest =
       this.firstName().trim() || this.lastName().trim() || this.email().trim()
         ? {

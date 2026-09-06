@@ -71,4 +71,17 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.5',
+    version: '0.1.5',
+    date: '2026-09-06T08:10:00+02:00',
+    changes: [
+      {
+        headline:
+          'Three asks from Dave on 2026-09-06. A booking can no longer be started with half a guest: first name, last name, e-mail address, phone number and country are all required, and until every one of them is filled in BOTH \u201cHold for 24 hours\u201d and \u201cMake the booking\u201d stay asleep, with a line naming exactly what is still missing. Cancelling a hold now asks \u201cPlease add any note about the cancelation here\u201d and will not confirm until something is typed \u2014 so a released hold always carries a reason. And the home page gains two things: a \u201cNights booked\u201d card showing the room nights and the guests the operator has booked, and a two-month availability heat map of the guest suites, shaded from wide open to full, with \u2039 \u203a, Today, and a month picker.',
+        detail:
+          'Pairs with Lodge Ops 1.3.61 (migration 393); no engine change. REQUIRED GUEST FIELDS: new-booking gains guestMissing() (a typed list of the five, e-mail checked for shape rather than mere length), stayReady(), and canHold()/canBook() which both now require an empty missing list; the five labels carry a gold .nb-req asterisk and the .nb-need line reads them back in Dave\u2019s own words. The check is on the BUTTONS, not on submit \u2014 a disabled button cannot be talked past by a keyboard. THE CANCELLATION NOTE: the hold slide-out\u2019s Cancel no longer acts at once; it opens a panel with a textarea and a Confirm that stays disabled until the note has real characters, and the typed note is what is sent as the cancellation reason (the same field the lodge sees on the hold in Lodge Ops), so the portal and Lodge Ops always tell the same story about why the nights came back. NIGHTS BOOKED: Summary.bookings gains roomNights and guests from Lodge Ops (1.3.61), which multiplies each suite line by its UNITS \u2014 two Lagoons for three nights is six room nights, not three. THE HEAT MAP: a new server route GET /api/engine/heatmap?from&to walks the span in 31-night chunks (the engine\u2019s own scan limit), asks the STO channel with the operator\u2019s key, and sums nightsFree across every suite the channel sells into one figure per day; it returns free units only \u2014 how many units the lodge HAS is Lodge Ops\u2019 figure and the app already holds it in its catalogue (unitsTotal per suite), so nothing guesses a capacity from the busiest day it happened to see. The app draws this month and the next side by side, shadeFor() bucketing each day from open to full against that catalogue total, with a legend, \u2039 \u203a a month at a time, Today, and a month <input type=\'month\'> \u2014 all of which change WHAT is shown, never a Refresh of the same view. VERIFIED on the Lodge Ops e2e rig (case 95, 135 checks): 95.91b the Nights booked card against the database, 95.91c the two months and the shading, 95.91d \u2039 a month earlier, 95.91e the picker jumping and the engine re-asked, 95.93e\u2013h the five fields waking both buttons (a malformed e-mail counting as missing, the country last), 95.96b\u2013d the note panel, Confirm asleep until it is typed, and the note kept as the hold\u2019s reason. Full suite 550 passed with one unrelated timing failure in case 40 that passes 69/0 on its own.',
+      },
+    ],
+  },
 ];

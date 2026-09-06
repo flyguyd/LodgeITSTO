@@ -1,6 +1,6 @@
 {
   "name": "lodgeit-sto-portal-server",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Serves the STO portal app and signs its calls to Lodge Ops (portal key) and the Booking Engine (engine client sto). Node built-ins only.",
   "author": "7 Star Lodges",
   "private": true,

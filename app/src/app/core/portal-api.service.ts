@@ -88,8 +88,18 @@ export interface Price { from: string; to: string; nights: number; currency: str
 export interface Summary {
   logins: number; searches: number;
   holds: { count: number; value: number; cancelled: number; expired: number; converted: number; open: number; openValue: number };
-  bookings: { count: number; value: number; cancelled: number; live: number; liveValue: number; discountGiven: number; nights: number };
+  bookings: { count: number; value: number; cancelled: number; live: number; liveValue: number; discountGiven: number; nights: number; roomNights: number; guests: number };
   upcoming: Booking[];
+}
+
+/** THE HEAT MAP (Dave, 2026-09-06): units free per day across every suite the
+ *  channel sells. How many units the lodge HAS comes from the catalogue. */
+export interface Heatmap {
+  ok: boolean;
+  from: string;
+  to: string;
+  suites: string[];
+  days: Record<string, { free: number | null }>;
 }
 
 export function money(v: number | null | undefined, currency?: string | null): string {
@@ -147,6 +157,7 @@ export class PortalApiService {
   availability(from: string, to: string): Observable<{ suites: Record<string, number | null> }> { return this.http.get<{ suites: Record<string, number | null> }>('/api/engine/availability', { params: this.params({ from, to }) }); }
   quote(body: { roomTypeIds: string[]; from: string; to: string; adults: number; children: number; infants: number }): Observable<Quote> { return this.http.post<Quote>('/api/engine/quote', body); }
   calendar(q: { roomTypeId: string; from: string; to: string; adults: number; children: number; infants: number }): Observable<SuiteCalendar> { return this.http.get<SuiteCalendar>('/api/engine/calendar', { params: this.params(q) }); }
+  heatmap(from: string, to: string): Observable<Heatmap> { return this.http.get<Heatmap>('/api/engine/heatmap', { params: this.params({ from, to }) }); }
   price(body: StayInput): Observable<Price> { return this.http.post<Price>('/api/lo/price', body); }
   holds(q: { page: number; pageSize: number; sort: string; dir: string; q?: string; status?: string }): Observable<{ rows: Hold[]; total: number }> { return this.http.get<{ rows: Hold[]; total: number }>('/api/lo/holds', { params: this.params(q) }); }
   hold(id: string): Observable<Hold> { return this.http.get<Hold>(`/api/lo/holds/${encodeURIComponent(id)}`); }

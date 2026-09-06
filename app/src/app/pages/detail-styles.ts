@@ -17,6 +17,9 @@ export const DETAIL_STYLES = `
   .sd-suite { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--oa-border); font-size: 13.5px; }
   .sd-total { display: flex; justify-content: space-between; padding: 8px 0; font-weight: 650; }
   .sd-dim { color: var(--oa-text-dim); font-size: 12.5px; }
+  .sd-warn { color: #705003; font-size: 12.5px; margin: 6px 0 0; }
+  .sd-req { color: #9a3b2e; font-style: normal; font-weight: 700; }
+  .sd-note { min-height: 68px; resize: vertical; }
   .sd-strike { text-decoration: line-through; color: var(--oa-text-dim); }
   .sd-err { color: var(--oa-danger); font-size: 13.5px; }
   .sd-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
