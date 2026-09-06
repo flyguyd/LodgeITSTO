@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money, refundLabel } from '../core/portal-api.service';
 import { PortalAuthService } from '../core/portal-auth.service';
+import { countryFlag, countryOptions } from '../shared/countries';
 
 /** A date the heat map may hand this page in the URL. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -125,7 +126,17 @@ interface SuiteLine { roomTypeId: string; units: number; }
           </div>
           <div class="nb-row">
             <label class="nb-field"><span>State / province</span><input class="oa-input" type="text" name="state" maxlength="120" [ngModel]="state()" (ngModelChange)="state.set($event)" /></label>
-            <label class="nb-field"><span>Country <i class="nb-req">*</i></span><input class="oa-input" type="text" name="country" maxlength="80" [ngModel]="country()" (ngModelChange)="country.set($event)" /></label>
+            <label class="nb-field"><span>Country <i class="nb-req">*</i></span>
+              <!-- THE FLAG IS A SIBLING of the select (Dave, 2026-09-06) —
+                   inside it, a browser draws it as option text. -->
+              <span class="nb-country">
+                <span class="nb-flag" aria-hidden="true">{{ countryFlag(country()) }}</span>
+                <select class="oa-input" name="country" [ngModel]="country()" (ngModelChange)="country.set($event)">
+                  <option value="">— choose —</option>
+                  @for (c of countryList(); track c.name) { <option [value]="c.name">{{ c.name }}</option> }
+                </select>
+              </span>
+            </label>
           </div>
           <label class="nb-field"><span>Notes for the lodge</span><textarea class="oa-input nb-notes" name="notes" maxlength="4000" [ngModel]="notes()" (ngModelChange)="notes.set($event)"></textarea></label>
 
@@ -231,6 +242,9 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-row { display: flex; gap: 10px; flex-wrap: wrap; }
       .nb-h3 { margin: 16px 0 0; font-size: 13px; font-weight: 650; color: var(--oa-text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
       .nb-row .nb-field { flex: 1 1 160px; }
+      .nb-country { display: flex; align-items: center; gap: 8px; }
+      .nb-country .oa-input { flex: 1 1 auto; min-width: 0; }
+      .nb-flag { font-size: 20px; line-height: 1; flex: 0 0 auto; width: 24px; text-align: center; }
       .nb-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
       .nb-field > span { font-size: 12.5px; color: var(--oa-text-dim); font-weight: 600; }
       .nb-field > span small { font-weight: 400; }
@@ -343,6 +357,9 @@ export class NewBookingComponent implements OnInit {
   readonly email = signal('');
   readonly phone = signal('');
   readonly country = signal('');
+  /** The dropdown's options, with anything already stored kept at the top. */
+  countryList() { return countryOptions(this.country()); }
+  countryFlag(v: string): string { return countryFlag(v); }
   readonly street = signal('');
   readonly apartment = signal('');
   readonly city = signal('');
