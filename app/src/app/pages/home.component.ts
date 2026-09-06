@@ -48,6 +48,8 @@ const shadeFor = (free: number | null, total: number): string => {
         <div class="hm-stats">
           <a class="hm-stat" routerLink="/holds" [queryParams]="{ status: 'active' }"><span>Open holds</span><strong>{{ s.holds.open }}</strong><small>{{ money(s.holds.openValue) }}</small></a>
           <a class="hm-stat" routerLink="/bookings"><span>Live bookings</span><strong>{{ s.bookings.live }}</strong><small>{{ money(s.bookings.liveValue) }} · {{ s.bookings.nights }} nights</small></a>
+          <!-- WHAT THE OPERATOR HAS BOOKED, IN MONEY (Dave, 2026-09-06) -->
+          <div class="hm-stat hm-stat-wide"><span>Revenue booked</span><strong>{{ money(s.bookings.liveValue) }}</strong><small>{{ s.bookings.live }} live booking{{ s.bookings.live === 1 ? '' : 's' }}@if (s.bookings.liveRackValue > s.bookings.liveValue) { · {{ money(s.bookings.liveRackValue) }} at rack }@if (s.bookings.cancelled) { · {{ money(s.bookings.cancelledValue) }} cancelled }</small></div>
           <div class="hm-stat"><span>Saved with your discount</span><strong>{{ money(s.bookings.discountGiven) }}</strong><small>on live bookings</small></div>
           <div class="hm-stat"><span>Nights booked</span><strong>{{ s.bookings.roomNights }}</strong><small>{{ s.bookings.guests }} guest{{ s.bookings.guests === 1 ? '' : 's' }} booked · one night per suite per night</small></div>
           <div class="hm-stat"><span>Searches</span><strong>{{ s.searches }}</strong><small>{{ s.logins }} sign-ins</small></div>
@@ -138,6 +140,7 @@ const shadeFor = (free: number | null, total: number): string => {
       .hm-row:hover { border-color: var(--oa-card-border-hover); }
       .hm-pill { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--oa-border); border-radius: 999px; padding: 2px 10px; justify-self: start; }
       .hm-num { text-align: right; font-variant-numeric: tabular-nums; }
+      .hm-stat-wide strong { color: var(--oa-accent-strong); }
       .hm-heat { background: var(--oa-card-bg); border: 1px solid var(--oa-card-border); border-radius: var(--oa-card-radius); box-shadow: var(--oa-card-shadow); padding: 14px 16px; margin-bottom: 22px; }
       .hm-heathead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
       .hm-nav { display: flex; align-items: center; gap: 6px; }

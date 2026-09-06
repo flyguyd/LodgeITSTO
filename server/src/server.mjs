@@ -328,7 +328,7 @@ async function heatmap(q) {
 }
 
 // ---- the server ----------------------------------------------------------------
-const LO_ALLOW = /^\/(me|me\/password|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/cancel)$/;
+const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/cancel)$/;
 const server = createServer(async (req, res) => {
   const url = req.url ?? '/';
   const method = (req.method ?? 'GET').toUpperCase();
@@ -346,7 +346,13 @@ const server = createServer(async (req, res) => {
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
     let body;
     if (method === 'POST' || method === 'PUT') {
-      try { const raw = await readBody(req); body = raw ? JSON.parse(raw) : {}; } catch { json(res, 400, { code: 'BAD_BODY', message: 'The request body must be JSON under 64 KB.' }); return; }
+      // A LOGO IS THE ONE BIG BODY (Dave, 2026-09-06). Everything an operator
+      // sends is a handful of fields and belongs under 64 KB; their logo is a
+      // shrunk-in-the-browser data URL, so that ONE path gets a wider cap and
+      // nothing else does. Lodge Ops checks the size and the image type again
+      // on arrival — this cap only stops a body being read at all.
+      const cap = clean === '/api/lo/me/logo' ? 1024 * 1024 : MAX_BODY;
+      try { const raw = await readBody(req, cap); body = raw ? JSON.parse(raw) : {}; } catch { json(res, 400, { code: 'BAD_BODY', message: `The request body must be JSON under ${Math.round(cap / 1024)} KB.` }); return; }
     }
     // sign in — the one call without a token
     if (clean === '/api/auth/login' && method === 'POST') {

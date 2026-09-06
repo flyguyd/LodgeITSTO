@@ -88,7 +88,7 @@ export interface Price { from: string; to: string; nights: number; currency: str
 export interface Summary {
   logins: number; searches: number;
   holds: { count: number; value: number; cancelled: number; expired: number; converted: number; open: number; openValue: number };
-  bookings: { count: number; value: number; cancelled: number; live: number; liveValue: number; discountGiven: number; nights: number; roomNights: number; guests: number };
+  bookings: { count: number; value: number; cancelled: number; cancelledValue: number; live: number; liveValue: number; discountGiven: number; liveRackValue: number; nights: number; roomNights: number; guests: number };
   upcoming: Booking[];
 }
 
@@ -157,6 +157,12 @@ export class PortalApiService {
   availability(from: string, to: string): Observable<{ suites: Record<string, number | null> }> { return this.http.get<{ suites: Record<string, number | null> }>('/api/engine/availability', { params: this.params({ from, to }) }); }
   quote(body: { roomTypeIds: string[]; from: string; to: string; adults: number; children: number; infants: number }): Observable<Quote> { return this.http.post<Quote>('/api/engine/quote', body); }
   calendar(q: { roomTypeId: string; from: string; to: string; adults: number; children: number; infants: number }): Observable<SuiteCalendar> { return this.http.get<SuiteCalendar>('/api/engine/calendar', { params: this.params(q) }); }
+  /** THE OPERATOR'S OWN LOGO (Dave, 2026-09-06), set from the avatar in the
+   *  command bar. An empty string clears it and puts the 7 Star mark back. */
+  setLogo(logo: string): Observable<{ ok: true; logo: string | null }> {
+    return this.http.post<{ ok: true; logo: string | null }>('/api/lo/me/logo', { logo });
+  }
+
   heatmap(from: string, to: string): Observable<Heatmap> { return this.http.get<Heatmap>('/api/engine/heatmap', { params: this.params({ from, to }) }); }
   price(body: StayInput): Observable<Price> { return this.http.post<Price>('/api/lo/price', body); }
   holds(q: { page: number; pageSize: number; sort: string; dir: string; q?: string; status?: string }): Observable<{ rows: Hold[]; total: number }> { return this.http.get<{ rows: Hold[]; total: number }>('/api/lo/holds', { params: this.params(q) }); }

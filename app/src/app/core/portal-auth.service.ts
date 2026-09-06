@@ -1,7 +1,16 @@
 import { Injectable, computed, signal } from '@angular/core';
 
 export interface PortalUser { id: string; stoId: string; name: string; email: string; phone: string | null; }
-export interface PortalCompany { id: string; name: string; code: string | null; discountPct: number; holdHours: number; }
+export interface PortalCompany {
+  id: string;
+  name: string;
+  code: string | null;
+  discountPct: number;
+  holdHours: number;
+  /** The operator's own logo as a data: URL (Lodge Ops migration 395), shown
+   *  in the command bar in place of the 7 Star mark. Null = not set. */
+  logo?: string | null;
+}
 
 const KEY = 'sto_session';
 

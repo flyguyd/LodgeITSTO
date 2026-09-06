@@ -614,6 +614,10 @@ export class NewBookingComponent implements OnInit {
     this.calPick.set(''); this.calHover.set('');
     this.from.set(lo);
     this.to.set(hi);
+    // THE CHECK-OUT CLICK FINISHES THE JOB (Dave, 2026-09-06): the calendar
+    // closes on it, so the price card underneath is what the eye lands on
+    // next. Reopen it to change the dates.
+    this.closeCalendar();
     this.requote();
   }
   shiftCalendar(by: number): void { const cal = this.calOpen(); if (!cal) return; this.calOpen.set({ ...cal, month: addMonths(cal.month, by) }); this.loadCalendar(); }
