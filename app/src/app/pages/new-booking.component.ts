@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money, refundLabel } from '../core/portal-api.service';
 import { PortalAuthService } from '../core/portal-auth.service';
-import { countryFlag, countryOptions } from '../shared/countries';
+import { countryFlagSrc, countryOptions } from '../shared/countries';
 
 /** A date the heat map may hand this page in the URL. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -130,7 +130,9 @@ interface SuiteLine { roomTypeId: string; units: number; }
               <!-- THE FLAG IS A SIBLING of the select (Dave, 2026-09-06) —
                    inside it, a browser draws it as option text. -->
               <span class="nb-country">
-                <span class="nb-flag" aria-hidden="true">{{ countryFlag(country()) }}</span>
+                @if (countryFlagSrc(country()); as flag) {
+                  <img class="nb-flag" [src]="flag" [alt]="country()" width="24" height="18" />
+                } @else { <span class="nb-flag nb-flag-none" aria-hidden="true"></span> }
                 <select class="oa-input" name="country" [ngModel]="country()" (ngModelChange)="country.set($event)">
                   <option value="">— choose —</option>
                   @for (c of countryList(); track c.name) { <option [value]="c.name">{{ c.name }}</option> }
@@ -244,7 +246,8 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-row .nb-field { flex: 1 1 160px; }
       .nb-country { display: flex; align-items: center; gap: 8px; }
       .nb-country .oa-input { flex: 1 1 auto; min-width: 0; }
-      .nb-flag { font-size: 20px; line-height: 1; flex: 0 0 auto; width: 24px; text-align: center; }
+      .nb-flag { flex: 0 0 auto; width: 24px; height: 18px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); object-fit: cover; display: block; }
+      .nb-flag-none { box-shadow: none; background: rgba(0, 0, 0, 0.05); }
       .nb-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
       .nb-field > span { font-size: 12.5px; color: var(--oa-text-dim); font-weight: 600; }
       .nb-field > span small { font-weight: 400; }
@@ -359,7 +362,7 @@ export class NewBookingComponent implements OnInit {
   readonly country = signal('');
   /** The dropdown's options, with anything already stored kept at the top. */
   countryList() { return countryOptions(this.country()); }
-  countryFlag(v: string): string { return countryFlag(v); }
+  countryFlagSrc(v: string): string { return countryFlagSrc(v); }
   readonly street = signal('');
   readonly apartment = signal('');
   readonly city = signal('');

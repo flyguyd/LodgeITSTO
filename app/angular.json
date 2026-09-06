@@ -22,6 +22,12 @@
             "styles": [
               "src/styles.scss",
               "src/portal.scss"
+            ],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public"
+              }
             ]
           },
           "configurations": {

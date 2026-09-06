@@ -11,8 +11,10 @@
  * what every existing row already holds, so the dropdown changes how a country
  * is CHOSEN and nothing about what is kept.
  *
- * The flag is an EMOJI built from the ISO code's two regional-indicator
- * letters. No image, no CDN, no request: it is a character the font draws.
+ * The flag is a real SVG served from this app's own assets. Emoji flags were
+ * tried first and are NOT usable: Windows ships no flag glyphs, so a browser
+ * there draws the two letters instead (Dave, 2026-09-06). A local picture is
+ * the only thing that looks the same on every machine.
  */
 
 export interface Country {
@@ -104,27 +106,35 @@ export const COUNTRIES: readonly Country[] = [
   { code: 'ZW', name: 'Zimbabwe' },
 ];
 
-/** The two regional-indicator letters that draw a flag, e.g. ZA → 🇿🇦. */
-function flagOf(code: string): string {
-  const c = (code ?? '').trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(c)) return '';
-  return String.fromCodePoint(...[...c].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
-}
-
 /**
- * The flag for whatever is stored against a guest. Rows written before this
- * picker existed hold anything a person typed — a name, a two-letter code, a
- * misspelling — so the lookup tries the NAME first, then the CODE, and gives
- * back a globe when it recognises neither. It never guesses.
+ * The ISO code for whatever is stored against a guest. Rows written before
+ * this picker existed hold anything a person typed — a name, a two-letter
+ * code, a misspelling — so the lookup tries the NAME first, then the CODE, and
+ * gives back nothing when it recognises neither. It never guesses.
  */
-export function countryFlag(value: string | null | undefined): string {
+export function countryCode(value: string | null | undefined): string {
   const v = (value ?? '').trim();
   if (!v) return '';
   const byName = COUNTRIES.find((c) => c.name.toLowerCase() === v.toLowerCase());
-  if (byName) return flagOf(byName.code);
+  if (byName) return byName.code;
   const byCode = COUNTRIES.find((c) => c.code.toLowerCase() === v.toLowerCase());
-  if (byCode) return flagOf(byCode.code);
-  return '🌍';
+  return byCode ? byCode.code : '';
+}
+
+/**
+ * WHERE THE FLAG PICTURE LIVES. Emoji flags were the first attempt and they
+ * do not work: WINDOWS SHIPS NO FLAG GLYPHS AT ALL, so a browser there draws
+ * the two regional-indicator letters instead and the field reads "EG" where a
+ * flag should be (Dave, 2026-09-06, with a screenshot of exactly that). These
+ * are real SVGs served from this app's own assets — no font to depend on, no
+ * CDN to reach, and the same picture on every machine. An unknown country has
+ * no file and gets an empty box rather than a broken image.
+ */
+export function countryFlagSrc(value: string | null | undefined): string {
+  const code = countryCode(value);
+  // Absolute: both apps are served at the root (<base href="/">), and a
+  // relative path would resolve against whatever route is open.
+  return code ? `/flags/${code.toLowerCase()}.svg` : '';
 }
 
 /**
