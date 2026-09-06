@@ -2,7 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money } from '../core/portal-api.service';
+import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money, refundLabel } from '../core/portal-api.service';
 import { PortalAuthService } from '../core/portal-auth.service';
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -12,6 +12,8 @@ const monthLabel = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocale
 const calMoney = (v: number, currency: string) => (currency === 'ZAR' || !currency ? 'R' : currency + ' ') + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 interface CalCell { date: string; num: number; day: CalendarDay | null; stay: boolean; past: boolean; rate: string; freeText: string; title: string;
+  /** While a new stay is being clicked out, the nights the pointer covers. */
+  pick: boolean; pickStart: boolean;
   /** The channel's own nightly, struck through beneath the operator's. */
   rack: string;
 }
@@ -28,7 +30,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
  */
 @Component({
   selector: 'sto-new-booking',
-  host: { '(document:keydown.escape)': 'closeCalendar()' },
+  host: { '(document:keydown.escape)': 'onEscape()' },
   standalone: true,
   imports: [DatePipe, FormsModule, RouterLink],
   template: `
@@ -81,12 +83,16 @@ interface SuiteLine { roomTypeId: string; units: number; }
             @if (q.plans.length) {
               <div class="nb-plans">
                 @for (p of q.plans; track p.id) {
-                  <button type="button" class="nb-plan" [class.on]="planId() === p.id" [disabled]="!sellable(p.id)" (click)="planId.set(p.id)">
-                    <span class="nb-plan-name">{{ p.name }}</span>
-                    <span class="nb-plan-total">{{ planTotal(p.id) }}</span>
-                    @if (planRack(p.id); as rk) { <span class="nb-plan-rack"><s>{{ rk }}</s> <span class="nb-plan-off">{{ discountPct() }}% off</span></span> }
-                    @if (planNote(p.id); as n) { <span class="nb-plan-note">{{ n }}</span> }
-                  </button>
+                  <div class="nb-plan-wrap">
+                    <button type="button" class="nb-plan" [class.on]="planId() === p.id" [disabled]="!sellable(p.id)" (click)="planId.set(p.id)">
+                      <span class="nb-plan-name">{{ p.name }}</span>
+                      <span class="nb-plan-total">{{ planTotal(p.id) }}</span>
+                      @if (planRack(p.id); as rk) { <span class="nb-plan-rack"><s>{{ rk }}</s> <span class="nb-plan-off">{{ discountPct() }}% off</span></span> }
+                      @if (planRefund(p.id); as rf) { <span class="nb-plan-refund">{{ rf }}</span> }
+                      @if (planNote(p.id); as n) { <span class="nb-plan-note">{{ n }}</span> }
+                    </button>
+                    <button type="button" class="nb-plan-i" [attr.name]="'inclusions-' + p.id" title="What this rate includes" aria-label="What this rate includes" (click)="openInclusions(p.id)">i</button>
+                  </div>
                 }
               </div>
               <p class="nb-dim">Units free for these nights: {{ unitsFreeText() }}</p>
@@ -105,7 +111,19 @@ interface SuiteLine { roomTypeId: string; units: number; }
             <label class="nb-field"><span>E-mail</span><input class="oa-input" type="email" name="email" maxlength="255" [ngModel]="email()" (ngModelChange)="email.set($event)" /></label>
             <label class="nb-field"><span>Phone</span><input class="oa-input" type="tel" name="phone" maxlength="60" [ngModel]="phone()" (ngModelChange)="phone.set($event)" /></label>
           </div>
-          <label class="nb-field"><span>Country</span><input class="oa-input" type="text" name="country" maxlength="80" [ngModel]="country()" (ngModelChange)="country.set($event)" /></label>
+          <h3 class="nb-h3">Address</h3>
+          <div class="nb-row">
+            <label class="nb-field"><span>Street</span><input class="oa-input" type="text" name="street" maxlength="200" [ngModel]="street()" (ngModelChange)="street.set($event)" /></label>
+            <label class="nb-field nb-narrow"><span>Apartment / unit</span><input class="oa-input" type="text" name="apartment" maxlength="80" [ngModel]="apartment()" (ngModelChange)="apartment.set($event)" /></label>
+          </div>
+          <div class="nb-row">
+            <label class="nb-field"><span>City</span><input class="oa-input" type="text" name="city" maxlength="120" [ngModel]="city()" (ngModelChange)="city.set($event)" /></label>
+            <label class="nb-field nb-narrow"><span>Post code</span><input class="oa-input" type="text" name="postCode" maxlength="20" [ngModel]="postCode()" (ngModelChange)="postCode.set($event)" /></label>
+          </div>
+          <div class="nb-row">
+            <label class="nb-field"><span>State / province</span><input class="oa-input" type="text" name="state" maxlength="120" [ngModel]="state()" (ngModelChange)="state.set($event)" /></label>
+            <label class="nb-field"><span>Country</span><input class="oa-input" type="text" name="country" maxlength="80" [ngModel]="country()" (ngModelChange)="country.set($event)" /></label>
+          </div>
           <label class="nb-field"><span>Notes for the lodge</span><textarea class="oa-input nb-notes" name="notes" maxlength="4000" [ngModel]="notes()" (ngModelChange)="notes.set($event)"></textarea></label>
 
           <div class="nb-summary">
@@ -129,6 +147,32 @@ interface SuiteLine { roomTypeId: string; units: number; }
       </div>
     </section>
 
+    @if (incOpen(); as inc) {
+      <div class="nb-inc-backdrop" (click)="incOpen.set(null)">
+        <div class="nb-inc-panel" role="dialog" aria-modal="true" aria-label="What this rate includes" (click)="$event.stopPropagation()">
+          <header class="nb-inc-head">
+            <div>
+              <h2>{{ inc.planName }}</h2>
+              <p class="nb-dim">What this rate includes for the suites chosen.</p>
+            </div>
+            <button type="button" class="nb-inc-close" (click)="incOpen.set(null)" aria-label="Close">✕</button>
+          </header>
+          @for (s of inc.suites; track s.roomTypeId) {
+            @if (inc.suites.length > 1) { <p class="nb-inc-suite">{{ s.name }}</p> }
+            @if (s.included.length) {
+              <ul class="nb-inc-list">@for (i of s.included; track i) { <li>{{ i }}</li> }</ul>
+            } @else {
+              <p class="nb-dim">Nothing is listed as included on this rate.</p>
+            }
+            @if (s.excluded.length) {
+              <p class="nb-dim">Not included:</p>
+              <ul class="nb-inc-list nb-inc-out">@for (i of s.excluded; track i) { <li>{{ i }}</li> }</ul>
+            }
+          }
+        </div>
+      </div>
+    }
+
     @if (calOpen(); as cal) {
       <div class="nb-cal-backdrop" (click)="closeCalendar()">
         <div class="nb-cal-panel" role="dialog" aria-modal="true" aria-label="Availability and rates" (click)="$event.stopPropagation()">
@@ -136,6 +180,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
             <div>
               <h2>{{ suiteOf(cal.roomTypeId)?.name || 'Suite' }} — availability and rates</h2>
               <p class="nb-dim">Free units and your nightly rate ({{ discountPct() }}% off the published figure, VAT in) for {{ adults() }} {{ adults() === 1 ? 'adult' : 'adults' }}{{ children() ? ', ' + children() + (children() === 1 ? ' child' : ' children') : '' }}. @if (calPlanName(); as pn) { Plan: <b>{{ pn }}</b>. } @else { The cheapest plan each night. } The requested nights are outlined in gold.</p>
+              <p class="nb-cal-hint">{{ calPick() ? 'Now click the LAST night of the stay — click the same night again for one night.' : 'Click a night to move the stay: the first night, then the last.' }}</p>
             </div>
             <button type="button" class="nb-cal-close" (click)="closeCalendar()" aria-label="Close">✕</button>
           </header>
@@ -153,10 +198,10 @@ interface SuiteLine { roomTypeId: string; units: number; }
                   @for (d of DOW; track d) { <span class="nb-cal-dow">{{ d }}</span> }
                   @for (c of m.cells; track $index) {
                     @if (c) {
-                      <div class="nb-cal-day" [class.stay]="c.stay" [class.soldout]="c.day?.free === 0" [class.unknown]="!c.day || c.day.free == null" [class.past]="c.past" [attr.data-date]="c.date" [title]="c.title">
+                      <button type="button" class="nb-cal-day" [class.stay]="c.stay" [class.pick]="c.pick" [class.pick-start]="c.pickStart" [class.soldout]="c.day?.free === 0" [class.unknown]="!c.day || c.day.free == null" [class.past]="c.past" [disabled]="c.past" [attr.data-date]="c.date" [title]="c.title" (click)="pickDay(c)" (mouseenter)="calHover.set(c.date)">
                         <span class="nb-cal-num">{{ c.num }}</span>
                         @if (c.day && !c.past) { <span class="nb-cal-rate">{{ c.rate }}</span>@if (c.rack) { <span class="nb-cal-rack">{{ c.rack }}</span> }<span class="nb-cal-free">{{ c.freeText }}</span> }
-                      </div>
+                      </button>
                     } @else { <div class="nb-cal-day nb-cal-blank"></div> }
                   }
                 </div>
@@ -178,6 +223,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 650; }
       .nb-card h2:not(:first-child) { margin-top: 20px; }
       .nb-row { display: flex; gap: 10px; flex-wrap: wrap; }
+      .nb-h3 { margin: 16px 0 0; font-size: 13px; font-weight: 650; color: var(--oa-text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
       .nb-row .nb-field { flex: 1 1 160px; }
       .nb-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
       .nb-field > span { font-size: 12.5px; color: var(--oa-text-dim); font-weight: 600; }
@@ -192,6 +238,25 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-warn { color: #705003; font-size: 13px; margin: 0 0 10px; }
       .nb-err { color: var(--oa-danger); font-size: 13.5px; margin: 8px 0; }
       .nb-plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 10px; }
+      /* The card and its "i" are SIBLINGS: a button cannot legally contain
+         another button, and nesting one made the whole card unclickable. */
+      .nb-plan-wrap { position: relative; display: flex; }
+      .nb-plan-wrap > .nb-plan { flex: 1; }
+      .nb-plan-i {
+        position: absolute; top: 5px; right: 5px; width: 19px; height: 19px; padding: 0;
+        border-radius: 50%; border: 1px solid var(--oa-border-strong); background: var(--oa-surface);
+        color: var(--oa-text-dim); font: 600 12px/17px Georgia, 'Times New Roman', serif; cursor: pointer;
+      }
+      .nb-plan-i:hover { color: var(--oa-text); border-color: #c8a45f; }
+      .nb-inc-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 10, 0.45); z-index: 1300; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .nb-inc-panel { background: var(--oa-surface); border: 1px solid var(--oa-border); border-radius: var(--oa-radius); max-width: 520px; width: 100%; max-height: 80vh; overflow: auto; padding: 18px 20px; z-index: 1301; }
+      .nb-inc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+      .nb-inc-head h2 { margin: 0; font-size: 17px; }
+      .nb-inc-close { border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--oa-text-dim); }
+      .nb-inc-list { margin: 10px 0 0; padding-left: 18px; }
+      .nb-inc-list li { margin: 3px 0; font-size: 13.5px; }
+      .nb-inc-out li { color: var(--oa-text-dim); text-decoration: line-through; }
+      .nb-inc-suite { margin: 12px 0 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--oa-text-dim); }
       .nb-plan { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--oa-border); border-radius: var(--oa-radius); background: var(--oa-surface-2); cursor: pointer; color: inherit; font: inherit; }
       .nb-plan.on { border-color: #c8a45f; box-shadow: inset 0 0 0 1px #c8a45f; }
       .nb-plan:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -205,6 +270,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-rack { display: block; font-size: 11.5px; font-weight: 400; color: var(--oa-text-dim); margin-top: 2px; }
       .nb-rack s { text-decoration: line-through; }
       .nb-cal-rack { font-size: 10.5px; color: var(--oa-text-dim); text-decoration: line-through; }
+      .nb-plan-refund { font-size: 12px; color: #705003; }
       .nb-plan-note { font-size: 12px; color: var(--oa-text-dim); }
       .nb-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--oa-border); border-radius: var(--oa-radius); background: var(--oa-surface-2); }
       .nb-summary div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
@@ -226,7 +292,12 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-cal-month h3 { margin: 0 0 6px; font-size: 14px; font-weight: 650; text-align: center; }
       .nb-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
       .nb-cal-dow { text-align: center; font-size: 11px; color: var(--oa-text-dim); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
-      .nb-cal-day { min-height: 58px; border: 1px solid var(--oa-border); border-radius: 6px; padding: 4px 5px; display: flex; flex-direction: column; gap: 1px; background: var(--oa-surface-2); font-variant-numeric: tabular-nums; }
+      /* The day cells are BUTTONS now (the stay is clicked out on them), so
+         they reset the browser's button styling back to the card look. */
+      .nb-cal-day { min-height: 58px; border: 1px solid var(--oa-border); border-radius: 6px; padding: 4px 5px; display: flex; flex-direction: column; gap: 1px; background: var(--oa-surface-2); font-variant-numeric: tabular-nums; font: inherit; color: inherit; text-align: left; align-items: stretch; cursor: pointer; }
+      .nb-cal-day:hover:not(:disabled) { border-color: #8a6d2f; }
+      .nb-cal-day:disabled { cursor: default; }
+      .nb-cal-blank { cursor: default; }
       .nb-cal-blank { border-color: transparent; background: transparent; }
       .nb-cal-num { font-size: 12px; font-weight: 600; }
       .nb-cal-rate { font-size: 12.5px; }
@@ -236,6 +307,9 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-cal-day.soldout .nb-cal-free { color: #9a3b2e; }
       .nb-cal-day.past { opacity: 0.4; }
       .nb-cal-day.stay { border-color: #c8a45f; box-shadow: inset 0 0 0 1.5px #c8a45f; background: #fbf5e6; }
+      .nb-cal-day.pick { border-color: #8a6d2f; box-shadow: inset 0 0 0 2px #8a6d2f; background: #f6ecd4; }
+      .nb-cal-day.pick-start { box-shadow: inset 0 0 0 2.5px #8a6d2f; }
+      .nb-cal-hint { margin: 6px 0 0; font-size: 12.5px; color: #705003; }
     `,
   ],
 })
@@ -260,14 +334,25 @@ export class NewBookingComponent implements OnInit {
   readonly email = signal('');
   readonly phone = signal('');
   readonly country = signal('');
+  readonly street = signal('');
+  readonly apartment = signal('');
+  readonly city = signal('');
+  readonly postCode = signal('');
+  readonly state = signal('');
   readonly notes = signal('');
   readonly busy = signal<'' | 'hold' | 'book'>('');
   readonly error = signal('');
   readonly stayFree = signal<Record<string, number | null>>({});
   readonly calOpen = signal<{ roomTypeId: string; month: string } | null>(null);
+  /** WHAT THIS RATE INCLUDES (Dave, 2026-09-06): the open inclusions modal. */
+  readonly incOpen = signal<{ planName: string; suites: { roomTypeId: string; name: string; included: string[]; excluded: string[] }[] } | null>(null);
   readonly calData = signal<SuiteCalendar | null>(null);
   readonly calLoading = signal(false);
   readonly calError = signal('');
+  /** CLICK-TO-PICK (Dave, 2026-09-06): the first night clicked while a new
+   *  stay is being chosen, and the night the pointer is over. */
+  readonly calPick = signal('');
+  readonly calHover = signal('');
   private quoteSeq = 0;
   private availSeq = 0;
   private calSeq = 0;
@@ -368,6 +453,16 @@ export class NewBookingComponent implements OnInit {
   planTotal(planId: string): string { const sum = this.stoSum(planId); return sum == null ? 'no rate' : money(sum, this.catalog()?.currency); }
   planRack(planId: string): string { const sum = this.rackSum(planId); return sum == null || this.discountPct() <= 0 ? '' : money(sum, this.catalog()?.currency); }
   totalRackText(): string { const p = this.planId(); if (!p || this.discountPct() <= 0) return ''; const sum = this.rackSum(p); return sum == null ? '' : money(sum, this.catalog()?.currency); }
+  /** REFUND TERMS ON THE CARD (Dave, 2026-09-06), in the booking site's own
+   *  words. Several suites that disagree say so rather than picking one. */
+  planRefund(planId: string): string {
+    const chosen = this.chosenLines();
+    if (!chosen.length) return '';
+    const labels = new Set(chosen.map((l) => refundLabel(this.suiteQuote(planId, l.roomTypeId)?.refundable)));
+    if (labels.size > 1) return 'Refund terms vary by suite';
+    return [...labels][0] ?? '';
+  }
+
   planNote(planId: string): string {
     const cur = this.catalog()?.currency;
     const chosen = this.chosenLines();
@@ -388,7 +483,21 @@ export class NewBookingComponent implements OnInit {
   totalText(): string { const sum = this.planId() ? this.stoSum(this.planId()) : null; return sum != null ? money(sum, this.catalog()?.currency) : '—'; }
 
   private stayInput(): StayInput {
-    const guest = this.firstName().trim() || this.lastName().trim() || this.email().trim() ? { firstName: this.firstName().trim(), lastName: this.lastName().trim(), email: this.email().trim() || null, phone: this.phone().trim() || null, country: this.country().trim() || null } : null;
+    const guest =
+      this.firstName().trim() || this.lastName().trim() || this.email().trim()
+        ? {
+            firstName: this.firstName().trim(),
+            lastName: this.lastName().trim(),
+            email: this.email().trim() || null,
+            phone: this.phone().trim() || null,
+            country: this.country().trim() || null,
+            street: this.street().trim() || null,
+            apartment: this.apartment().trim() || null,
+            city: this.city().trim() || null,
+            postCode: this.postCode().trim() || null,
+            state: this.state().trim() || null,
+          }
+        : null;
     return { from: this.from(), to: this.to(), adults: this.adults(), children: this.children(), infants: this.infants(), planId: this.planId(), lines: this.chosenLines().map((l) => ({ roomTypeId: l.roomTypeId, units: l.units })), guest, notes: this.notes().trim() || null };
   }
   hold(): void {
@@ -409,8 +518,65 @@ export class NewBookingComponent implements OnInit {
   }
 
   // ---- the availability + rates calendar ----
+  /** The "i" on a rate card: the plan's own inclusion list, with whatever the
+   *  rules that priced THIS stay added to it or took off it. */
+  openInclusions(planId: string): void {
+    const plan = this.quote()?.plans.find((p) => p.id === planId);
+    if (!plan) return;
+    const chosen = this.chosenLines();
+    const lines = chosen.length ? chosen : this.lines().filter((l) => !!l.roomTypeId);
+    this.incOpen.set({
+      planName: plan.name,
+      suites: lines.map((l) => {
+        const s = plan.suites?.[l.roomTypeId];
+        const off = new Set((s?.inclusionsRemoved ?? []).map((t) => t.toLowerCase()));
+        const included: string[] = [];
+        const seen = new Set<string>();
+        for (const t of [...(plan.included ?? []), ...(s?.inclusionsAdded ?? [])]) {
+          const k = t.toLowerCase();
+          if (off.has(k) || seen.has(k)) continue;
+          seen.add(k);
+          included.push(t);
+        }
+        const excluded: string[] = [];
+        const gone = new Set<string>();
+        for (const t of [...(plan.excluded ?? []), ...(s?.inclusionsRemoved ?? [])]) {
+          const k = t.toLowerCase();
+          if (gone.has(k)) continue;
+          gone.add(k);
+          excluded.push(t);
+        }
+        return { roomTypeId: l.roomTypeId, name: this.suiteOf(l.roomTypeId)?.name ?? l.roomTypeId, included, excluded };
+      }),
+    });
+  }
+
+  /** Escape closes whichever modal is open, innermost first. */
+  onEscape(): void {
+    if (this.incOpen()) { this.incOpen.set(null); return; }
+    this.closeCalendar();
+  }
+
   openCalendar(roomTypeId: string): void { if (!roomTypeId || this.nights() <= 0) return; this.calOpen.set({ roomTypeId, month: this.centredMonth() }); this.loadCalendar(); }
-  closeCalendar(): void { this.calOpen.set(null); this.calData.set(null); this.calError.set(''); }
+  closeCalendar(): void { this.calOpen.set(null); this.calData.set(null); this.calError.set(''); this.calPick.set(''); this.calHover.set(''); }
+  /**
+   * CLICK THE STAY OUT ON THE CALENDAR (Dave, 2026-09-06: "allow the user to
+   * adjust the search date by clicking on a day moving to another day and
+   * clicking again"). The cells are NIGHTS, so the two clicks are the first
+   * and the last night — check-out is the morning after the last one, and
+   * clicking the same night twice is a one-night stay. Either order works.
+   */
+  pickDay(c: CalCell): void {
+    if (c.past) return;
+    const first = this.calPick();
+    if (!first) { this.calPick.set(c.date); this.calHover.set(c.date); return; }
+    const lo = first <= c.date ? first : c.date;
+    const hi = first <= c.date ? c.date : first;
+    this.calPick.set(''); this.calHover.set('');
+    this.from.set(lo);
+    this.to.set(plusDays(hi, 1));
+    this.requote();
+  }
   shiftCalendar(by: number): void { const cal = this.calOpen(); if (!cal) return; this.calOpen.set({ ...cal, month: addMonths(cal.month, by) }); this.loadCalendar(); }
   private centredMonth(): string {
     const from = this.from();
@@ -437,6 +603,11 @@ export class NewBookingComponent implements OnInit {
     if (!cal) return [];
     const data = this.calData(), today = iso(new Date()), from = this.from(), to = this.to(), planId = this.planId();
     const currency = data?.currency || this.catalog()?.currency || 'ZAR';
+    // The provisional range while the stay is being clicked out: the first
+    // night and wherever the pointer is, in either order.
+    const pick = this.calPick(), over = this.calHover() || pick;
+    const pickLo = pick ? (pick <= over ? pick : over) : '';
+    const pickHi = pick ? (pick <= over ? over : pick) : '';
     return [cal.month, addMonths(cal.month, 1)].map((m) => {
       const first = new Date(`${m}-01T00:00:00Z`);
       const lead = (first.getUTCDay() + 6) % 7;
@@ -445,10 +616,13 @@ export class NewBookingComponent implements OnInit {
       for (let n = 1; n <= days; n++) {
         const date = `${m}-${String(n).padStart(2, '0')}`;
         const day = data?.days?.[date] ?? null;
-        const rack = day ? (planId && day.rates[planId] != null ? day.rates[planId] : day.cheapest) : null;
-        const rate = rack != null ? this.discounted(rack) : null;
+        // The figure the server sends IS this operator's — the rate engine
+        // applied the discount after the channel's last rule. Discounting it
+        // again here would take it off twice.
+        const rate = day ? (planId && day.rates[planId] != null ? day.rates[planId] : day.cheapest) : null;
         const rackRate = day?.rack ?? null;
-        cells.push({ date, num: n, day, stay: date >= from && date < to, past: date < today, rate: rate != null ? calMoney(rate, currency) : day ? '—' : '', rack: rackRate != null && rate != null && rackRate > rate ? calMoney(rackRate, currency) : '', freeText: day ? (day.free == null ? 'not known' : day.free === 0 ? 'none free' : `${day.free} free`) : '', title: day ? `${date}: ${day.free == null ? 'availability not known' : day.free + ' unit(s) free'}${rate != null ? ', ' + money(rate, currency) + ' per night for you' : ''}` : date });
+        const inPick = !!pickLo && date >= pickLo && date <= pickHi;
+        cells.push({ date, num: n, day, stay: date >= from && date < to, past: date < today, pick: inPick, pickStart: date === pick, rate: rate != null ? calMoney(rate, currency) : day ? '—' : '', rack: rackRate != null && rate != null && rackRate > rate ? calMoney(rackRate, currency) : '', freeText: day ? (day.free == null ? 'not known' : day.free === 0 ? 'none free' : `${day.free} free`) : '', title: day ? `${date}: ${day.free == null ? 'availability not known' : day.free + ' unit(s) free'}${rate != null ? ', ' + money(rate, currency) + ' per night for you' : ''}` : date });
       }
       while (cells.length % 7) cells.push(null);
       return { key: m, label: monthLabel(m), cells };

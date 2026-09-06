@@ -58,4 +58,17 @@ export const BUILD_NOTES = [
       },
     ],
   },
+  {
+    key: '0.1.4',
+    version: '0.1.4',
+    date: '2026-09-06T06:55:00+02:00',
+    changes: [
+      {
+        headline:
+          'What this rate includes, what comes back if it is cancelled, and a calendar you can click the stay out on (Dave, 2026-09-06 — the same three asks as Lodge Ops’ own New booking page, so the two look and behave alike). Each price card carries an “i” in its top right corner that opens what the rate includes and what it does not; the card also states the refund terms in the same sentence the booking website writes. In the availability calendar, clicking a night and then another moves the stay to those dates — either order — and Nights, the price card and the summary all follow. ALSO FIXED: every rate in that calendar read zero.',
+        detail:
+          'Pairs with Lodge Ops 1.3.60; no engine change. THE ZERO-RATE BUG: the calendar keyed each day’s rates by the CHANNEL’s id while the app looks a day’s rate up by the id its price card carries — the channel’s SOURCE PLAN. On the e2e rig the two happen to both be 1, which hid it completely; the merge now keys by planId || id, the same value the price card is given, and the e2e check reads the figure out of the cell rather than counting cells. A second bug in the same cell: the app was applying the operator’s discount to a rate the engine had already discounted, so a cell showed the discount twice — it now draws what the server sends. WHAT THIS RATE INCLUDES: the server pulls GET /api/engine/plan-inclusions (Lodge Ops’ own words, replicated to the engine), caches them five minutes and attaches the plan’s included/excluded to the one price card; QuoteSuite gains inclusionsAdded/inclusionsRemoved, and openInclusions() merges the plan’s list with the rule-driven changes for THIS stay (case-folded, removals win) so a rule that drops the spa credit strikes it through under “Not included”. The “i” is a SIBLING button of the card, never nested inside it — a button inside a button makes the whole card unclickable. REFUND TERMS: QuoteSuite gains refundable and refundLabel() is the booking site’s core.js sentence ported verbatim, so an operator and a guest never read different terms for the same rate; several suites that disagree say “Refund terms vary by suite”. CLICK THE STAY OUT: the calendar day cells are BUTTONS now (browser button styling reset back to the card look, past days disabled); the first click marks the first NIGHT and the hint changes, a second click on the last night sets check-in and check-out (the morning after the last night, so the outlined cells are exactly the nights paid for), the same night twice is a one-night stay, either order works. Escape closes the inclusions modal first, then the calendar. VERIFIED on the Lodge Ops e2e rig (case 95, 115 checks): 95.32b the plan’s inclusions and the refund policy on the quote, 95.92c the refund sentence on the card, 95.92d/e the modal and its ✕, 95.93 every requested night showing R4,140 over a struck-through R4,600 with “3 free”, 95.93b/c/d the two-click stay in both orders. Full suite green (531).',
+      },
+    ],
+  },
 ];

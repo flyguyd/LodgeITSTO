@@ -210,6 +210,23 @@ async function channelQuote({ roomTypeIds = [], from, to, adults, children, infa
   return { status: 200, body: r.json ?? {} };
 }
 
+/**
+ * WHAT THIS RATE INCLUDES (Dave, 2026-09-06). The words belong to Lodge Ops;
+ * the engine holds a replica keyed by rate plan id, and the channel rides its
+ * source plan, so the channel's `planId` is the key. Cached for five minutes
+ * — inclusions change about as often as a rate plan is written.
+ */
+const INCLUSIONS_TTL_MS = 5 * 60_000;
+let inclusions = { at: 0, plans: {} };
+async function planInclusions() {
+  if (Date.now() - inclusions.at < INCLUSIONS_TTL_MS) return inclusions.plans;
+  const r = await engine('GET', '/api/engine/plan-inclusions');
+  if (r.status !== 200 || !r.json || typeof r.json !== 'object') return inclusions.plans;
+  const plans = r.json.plans && typeof r.json.plans === 'object' ? r.json.plans : {};
+  inclusions = { at: Date.now(), plans };
+  return plans;
+}
+
 // ---- the calendar merge (the same picture Lodge Ops' New booking page shows) ----
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 function daysBetween(from, to) { const out = []; for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) < to; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10)); return out; }
@@ -251,13 +268,18 @@ async function calendar(q) {
     for (const d of chunk) if (days[d] && days[d].unknown && d in free) days[d].free = free[d];
   }
   // The shape the app already draws: one "plan" per calendar, the channel.
+  // The app looks a day's rate up by the id its price card carries — the
+  // channel's SOURCE PLAN — so the calendar must key it the same way. Keying
+  // by the channel id instead made the lookup miss on any engine where the
+  // two differ (they happen to match on the e2e rig, which hid it).
+  const planKey = channel ? String(channel.planId || channel.id) : '';
   const out = {};
   for (const [date, d] of Object.entries(days)) {
-    out[date] = { free: d.free, rates: channel ? { [channel.id]: d.rate } : {}, cheapest: d.rate, rack: d.rackRate ?? null, closedToArrival: d.closedToArrival };
+    out[date] = { free: d.free, rates: planKey ? { [planKey]: d.rate } : {}, cheapest: d.rate, rack: d.rackRate ?? null, closedToArrival: d.closedToArrival };
   }
   return {
     status: 200,
-    body: { ok: true, roomTypeId, from, to, currency: 'ZAR', plans: channel ? [{ id: channel.id, name: channel.name }] : [], days: out },
+    body: { ok: true, roomTypeId, from, to, currency: 'ZAR', plans: channel ? [{ id: planKey, name: channel.name }] : [], days: out },
   };
 }
 
@@ -333,11 +355,24 @@ const server = createServer(async (req, res) => {
         // The app draws price cards from `plans`: there is exactly one, the
         // channel, carrying its source plan's id so a booking still names a
         // plan Lodge Ops and the engine both know.
+        // What the plan itself includes travels with the card so the "i"
+        // can show it; the quote's own inclusionsAdded/Removed sit on the
+        // suite summaries and the app applies them on top.
+        const inc = ch ? (await planInclusions())[String(ch.planId || ch.id)] ?? null : null;
         json(res, 200, {
           stayNights: out.body?.stayNights ?? null,
           channel: ch,
           sto: { applied: sto.applied === true, discountPct: Number(sto.discountPct) || 0 },
-          plans: ch ? [{ id: ch.planId || ch.id, name: ch.name, description: null, suites: out.body?.suites ?? {} }] : [],
+          plans: ch
+            ? [{
+                id: ch.planId || ch.id,
+                name: ch.name,
+                description: null,
+                included: Array.isArray(inc?.included) ? inc.included : [],
+                excluded: Array.isArray(inc?.excluded) ? inc.excluded : [],
+                suites: out.body?.suites ?? {},
+              }]
+            : [],
         });
         return;
       }

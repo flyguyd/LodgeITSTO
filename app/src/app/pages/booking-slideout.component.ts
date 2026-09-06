@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { Booking, PortalApiService, STATUS_LABELS, money } from '../core/portal-api.service';
+import { Booking, Guest, PortalApiService, STATUS_LABELS, money } from '../core/portal-api.service';
 import { SlideoutExit } from '../shared/slideout-exit';
 import { DETAIL_STYLES } from './detail-styles';
 
@@ -26,6 +26,7 @@ import { DETAIL_STYLES } from './detail-styles';
           <dt>Stay</dt><dd>{{ x.from | date: 'EEE d MMM' }} → {{ x.to | date: 'EEE d MMM yyyy' }} · {{ x.nights }} night{{ x.nights === 1 ? '' : 's' }}</dd>
           <dt>Party</dt><dd>{{ x.adults }} adult{{ x.adults === 1 ? '' : 's' }}@if (x.children) { , {{ x.children }} child{{ x.children === 1 ? '' : 'ren' }} }@if (x.infants) { , {{ x.infants }} infant{{ x.infants === 1 ? '' : 's' }} } (each suite)</dd>
           <dt>Guest</dt><dd>{{ guest(x) }}</dd>
+          @if (address(x); as a) { <dt>Address</dt><dd>{{ a }}</dd> }
           <dt>Made</dt><dd>{{ x.createdAt | date: 'd MMM yyyy, HH:mm' }}@if (x.userName) { by {{ x.userName }} }@if (x.holdId) { · from a hold }</dd>
           @if (x.notes) { <dt>Notes</dt><dd>{{ x.notes }}</dd> }
           @if (x.status === 'cancelled') { <dt>Cancelled</dt><dd>{{ x.cancelledAt | date: 'd MMM, HH:mm' }} by {{ x.cancelledBy }}@if (x.cancelReason) { — {{ x.cancelReason }} }</dd> }
@@ -58,6 +59,12 @@ export class BookingSlideoutComponent implements OnInit {
   money(v: number | null, c?: string | null): string { return money(v, c ?? 'ZAR'); }
   label(s: string): string { return STATUS_LABELS[s] ?? s; }
   guest(b: Booking): string { return b.guest ? [`${b.guest.firstName} ${b.guest.lastName}`.trim(), b.guest.email, b.guest.phone].filter(Boolean).join(' · ') || '—' : '—'; }
+  /** The guest's full address on one line — blank when none was given. */
+  address(x: { guest: Guest | null }): string {
+    const g = x.guest;
+    if (!g) return '';
+    return [g.street, g.apartment, g.city, g.postCode, g.state, g.country].map((v) => (v ?? '').trim()).filter(Boolean).join(', ');
+  }
   cancel(): void {
     const b = this.b();
     if (!b) return;

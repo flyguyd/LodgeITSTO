@@ -20,6 +20,16 @@ export interface QuoteSto {
   vatTotal: number | null;
   grandTotal: number | null;
 }
+/** WHAT COMES BACK IF THE BOOKING IS CANCELLED — the policy a channel rule
+ *  set for this stay (engine 0.1.45; fees and date changes 2026-09-02). */
+export interface RefundPolicy {
+  policy: string;
+  nightsBefore?: number | null;
+  refundPct?: number;
+  processingFee?: number;
+  allowDateChanges?: boolean;
+  changeFee?: number;
+}
 export interface QuoteSuite {
   available?: boolean;
   restricted?: string | null;
@@ -29,9 +39,15 @@ export interface QuoteSuite {
   vatTotal?: number | null;
   unitsFree?: number | null;
   sto?: QuoteSto | null;
+  /** What the rules that priced THIS stay put on the rate, or took off it. */
+  inclusionsAdded?: string[];
+  inclusionsRemoved?: string[];
+  refundable?: RefundPolicy | null;
 }
 export interface Quote {
-  plans: { id: string; name: string; suites: Record<string, QuoteSuite> }[];
+  /** `included`/`excluded` are the plan's own words from Lodge Ops; the
+   *  suite's inclusionsAdded/Removed are applied on top (Dave, 2026-09-06). */
+  plans: { id: string; name: string; included?: string[]; excluded?: string[]; suites: Record<string, QuoteSuite> }[];
   sto?: { applied: boolean; discountPct: number };
 }
 export interface CalendarDay { free: number | null; rates: Record<string, number | null>; cheapest: number | null; rack?: number | null; closedToArrival: boolean; }
@@ -39,11 +55,25 @@ export interface SuiteCalendar { ok: boolean; roomTypeId: string; from: string; 
 export interface StayInput {
   from: string; to: string; adults: number; children: number; infants: number; planId: string;
   lines: { roomTypeId: string; units: number }[];
-  guest?: { firstName: string; lastName: string; email: string | null; phone: string | null; country: string | null } | null;
+  guest?: Guest | null;
   notes?: string | null;
 }
 export interface SuiteLine { roomTypeId: string; name: string; units: number; planId: string | null; planName: string | null; rackTotal: number | null; total: number | null; reservationId?: string | null; engineReference?: string | null; }
-export interface Guest { firstName: string; lastName: string; email: string | null; phone: string | null; country: string | null; }
+/** The guest, with the FULL address the staff New booking page collects
+ *  (Dave, 2026-09-06) — the address fields are optional so an older hold
+ *  read back without them still type-checks. */
+export interface Guest {
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  country: string | null;
+  street?: string | null;
+  apartment?: string | null;
+  city?: string | null;
+  postCode?: string | null;
+  state?: string | null;
+}
 export interface Hold {
   id: string; reference: string; status: string; from: string; to: string; nights: number; adults: number; children: number; infants: number;
   suites: SuiteLine[]; guest: Guest | null; currency: string; rackTotal: number | null; discountPct: number; total: number | null;
@@ -67,6 +97,33 @@ export function money(v: number | null | undefined, currency?: string | null): s
   const s = Number(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return (currency === 'ZAR' || !currency ? 'R' : currency + ' ') + s;
 }
+/** "Fully refundable up to 7 nights before check-in, less a R250 processing
+ *  fee. Date changes allowed after that for a R100 change fee" — the same
+ *  sentence Lodge Ops and the booking site write, so nobody reads different
+ *  terms for the same rate. Empty when no rule set a policy. */
+export function refundLabel(r: RefundPolicy | null | undefined): string {
+  if (!r || !r.policy) return '';
+  const fee = Number(r.processingFee);
+  const changeFee = Number(r.changeFee);
+  const changes =
+    r.allowDateChanges === true
+      ? 'Date changes allowed after that' + (Number.isFinite(changeFee) && changeFee > 0 ? ` for a ${money(changeFee, 'ZAR')} change fee` : ' at no charge')
+      : '';
+  if (r.policy === 'nonrefundable') {
+    return 'Nonrefundable' + (changes ? '. ' + changes.replace('after that', '').replace(/\s+/g, ' ').trim() : '');
+  }
+  const pct = Number(r.refundPct);
+  const name =
+    r.policy === 'partial'
+      ? 'Partially refundable' + (Number.isFinite(pct) && pct >= 1 ? ` (${pct}% refunded)` : '')
+      : 'Fully refundable';
+  const n = Number(r.nightsBefore);
+  let out = !Number.isFinite(n) || n < 0 ? name : `${name} up to ${n} night${n === 1 ? '' : 's'} before check-in`;
+  if (Number.isFinite(fee) && fee > 0) out += `, less a ${money(fee, 'ZAR')} processing fee`;
+  if (changes) out += '. ' + changes;
+  return out;
+}
+
 export const STATUS_LABELS: Record<string, string> = { held: 'Held', converted: 'Became a booking', cancelled: 'Cancelled', expired: 'Ran out', provisional: 'Provisional', confirmed: 'Confirmed', checked_in: 'Checked in', checked_out: 'Checked out', no_show: 'No show' };
 
 /** Everything the portal app asks its own server for. */
