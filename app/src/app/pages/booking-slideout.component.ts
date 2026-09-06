@@ -36,6 +36,11 @@ import { DETAIL_STYLES } from './detail-styles';
           <div class="sd-suite"><span>{{ s.name }}@if (s.units > 1) { × {{ s.units }} }@if (s.engineReference) { <span class="sd-dim"> · lodge ref {{ s.engineReference }}</span> }</span><span><span class="sd-strike">{{ money(s.rackTotal, x.currency) }}</span> {{ money(s.total, x.currency) }}</span></div>
         }
         <div class="sd-total"><span>Total at {{ x.discountPct }}% off</span><span>{{ money(x.total, x.currency) }}</span></div>
+        <!-- THE GUEST SHEET (Dave, 2026-09-06), at the FULL rate, ready to
+             forward to the guest exactly as the operator received it. -->
+        <div class="sd-actions">
+          <button type="button" class="oa-btn" name="sheet" [disabled]="sheetBusy()" (click)="downloadSheet(x.id)">{{ sheetBusy() ? 'Preparing…' : 'Guest booking information (PDF)' }}</button>
+        </div>
         @if (x.status !== 'cancelled' && x.status !== 'checked_in' && x.status !== 'checked_out') {
           <div class="sd-actions"><button type="button" class="oa-btn oa-btn-danger" [disabled]="busy()" (click)="cancel()">Cancel the booking</button></div>
         }
@@ -74,4 +79,31 @@ export class BookingSlideoutComponent implements OnInit {
     this.api.cancelBooking(b.id, reason.trim() || null).subscribe({ next: (x) => { this.busy.set(false); this.b.set(x); this.changed.emit(); }, error: (e) => { this.busy.set(false); this.error.set(e?.error?.message ?? 'Not cancelled.'); } });
   }
   close(): void { this.oaExit.emit(this.closed); }
+  readonly sheetBusy = signal(false);
+
+  /** Fetch the sheet with the session's token on it, then hand the browser the
+   *  bytes under the file name Lodge Ops chose. */
+  downloadSheet(id: string): void {
+    this.sheetBusy.set(true);
+    this.api.sheet('booking', id).subscribe({
+      next: (res) => {
+        this.sheetBusy.set(false);
+        const blob = res.body;
+        if (!blob) return;
+        const disp = res.headers.get('content-disposition') ?? '';
+        const named = /filename="?([^"]+)"?/.exec(disp);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = named ? named[1] : 'Guest booking information.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoke on the next tick: revoking synchronously can beat the click.
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      },
+      error: () => { this.sheetBusy.set(false); window.alert('That sheet could not be prepared.'); },
+    });
+  }
+
 }

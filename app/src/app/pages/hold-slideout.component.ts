@@ -40,6 +40,12 @@ import { DETAIL_STYLES } from './detail-styles';
           <div class="sd-suite"><span>{{ s.name }}@if (s.units > 1) { × {{ s.units }} }</span><span><span class="sd-strike">{{ money(s.rackTotal, x.currency) }}</span> {{ money(s.total, x.currency) }}</span></div>
         }
         <div class="sd-total"><span>Total at {{ x.discountPct }}% off</span><span>{{ money(x.total, x.currency) }}</span></div>
+        <!-- THE GUEST SHEET (Dave, 2026-09-06): the same PDF that was e-mailed
+             when the hold was taken, rebuilt from the row, at the FULL rate so
+             it can be forwarded to the guest as it stands. -->
+        <div class="sd-actions">
+          <button type="button" class="oa-btn" name="sheet" [disabled]="sheetBusy()" (click)="downloadSheet(x.id)">{{ sheetBusy() ? 'Preparing…' : 'Guest booking information (PDF)' }}</button>
+        </div>
         @if (x.active) {
           <div class="sd-actions">
             <button type="button" class="oa-btn oa-btn-primary" (click)="convertOpen.set(!convertOpen())">Make the booking</button>
@@ -194,4 +200,31 @@ export class HoldSlideoutComponent implements OnInit, OnDestroy {
   }
   openBooking(id: string): void { this.oaExit.run(() => { this.closed.emit(); void this.router.navigate(['/bookings'], { queryParams: { open: id } }); }); }
   close(): void { this.oaExit.emit(this.closed); }
+  readonly sheetBusy = signal(false);
+
+  /** Fetch the sheet with the session's token on it, then hand the browser the
+   *  bytes under the file name Lodge Ops chose. */
+  downloadSheet(id: string): void {
+    this.sheetBusy.set(true);
+    this.api.sheet('hold', id).subscribe({
+      next: (res) => {
+        this.sheetBusy.set(false);
+        const blob = res.body;
+        if (!blob) return;
+        const disp = res.headers.get('content-disposition') ?? '';
+        const named = /filename="?([^"]+)"?/.exec(disp);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = named ? named[1] : 'Guest booking information.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoke on the next tick: revoking synchronously can beat the click.
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      },
+      error: () => { this.sheetBusy.set(false); window.alert('That sheet could not be prepared.'); },
+    });
+  }
+
 }

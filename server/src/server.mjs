@@ -107,6 +107,24 @@ function call(base, method, path, headers, rawBody = '') {
     req.end();
   });
 }
+/** The same call, kept as BYTES — a PDF must not be decoded to utf8 on its way
+ *  through. Used only by the booking-sheet relay. */
+function callRaw(base, method, path, headers) {
+  return new Promise((resolveCall) => {
+    let u;
+    try { u = new URL(base + path); } catch { return resolveCall({ status: 0, body: Buffer.alloc(0), headers: {} }); }
+    const mod = u.protocol === 'https:' ? https : http;
+    const req = mod.request(u, { method, headers: { ...headers, host: u.host }, timeout: TIMEOUT_MS }, (r) => {
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => resolveCall({ status: r.statusCode ?? 0, body: Buffer.concat(chunks), headers: r.headers ?? {} }));
+      r.on('error', () => resolveCall({ status: 0, body: Buffer.alloc(0), headers: {} }));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', () => resolveCall({ status: 0, body: Buffer.alloc(0), headers: {} }));
+    req.end();
+  });
+}
 const apiPrefix = (base) => { try { return new URL(base).pathname.replace(/\/+$/, ''); } catch { return '/api'; } };
 
 /** A call to Lodge Ops' STO routes, signed with the portal key; the user's token rides on top. */
@@ -118,6 +136,15 @@ function lodgeOps(method, path, { token, ip, body } = {}) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Sto-Key': STO_KEY, 'X-Sto-Ts': ts, 'X-Sto-Sign': sig, 'X-Guest-Ip': ip ?? '' };
   if (token) headers.Authorization = `Bearer ${token}`;
   return call(LODGEOPS_URL, method, `/sto-portal${path}`, headers, rawBody);
+}
+/** The booking sheet, as bytes, signed the same way. */
+function lodgeOpsRaw(method, path, { token, ip } = {}) {
+  if (!LODGEOPS_URL || !STO_SECRET) return Promise.resolve({ status: 0, body: Buffer.alloc(0), headers: {} });
+  const full = `${apiPrefix(LODGEOPS_URL)}/sto-portal${path}`;
+  const { ts, sig } = sign(STO_SECRET, method, full, '');
+  const headers = { Accept: 'application/pdf', 'X-Sto-Key': STO_KEY, 'X-Sto-Ts': ts, 'X-Sto-Sign': sig, 'X-Guest-Ip': ip ?? '' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return callRaw(LODGEOPS_URL, method, `/sto-portal${path}`, headers);
 }
 /** A call to the engine, signed as the portal's own client (from the pulled config). */
 function engine(method, path, body) {
@@ -328,7 +355,7 @@ async function heatmap(q) {
 }
 
 // ---- the server ----------------------------------------------------------------
-const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/cancel)$/;
+const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert|sheet)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/(cancel|sheet))$/;
 const server = createServer(async (req, res) => {
   const url = req.url ?? '/';
   const method = (req.method ?? 'GET').toUpperCase();
@@ -366,6 +393,23 @@ const server = createServer(async (req, res) => {
     if (clean.startsWith('/api/lo/')) {
       const rest = clean.slice('/api/lo'.length);
       if (!LO_ALLOW.test(rest) || !(method === 'GET' || method === 'POST')) { json(res, 404, { code: 'NOT_FOUND', message: 'No such endpoint.' }); return; }
+      // THE BOOKING SHEET IS A PDF (Dave, 2026-09-06), so it goes through as
+      // BYTES with its own content type — decoding it to utf8 like every other
+      // answer would corrupt it.
+      if (/\/sheet$/.test(rest)) {
+        const raw = await lodgeOpsRaw('GET', rest + query, { token, ip });
+        if (raw.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
+        if (raw.status === 401) vouched.delete(token);
+        if (raw.status !== 200) { json(res, raw.status, { code: 'NOT_FOUND', message: 'That sheet is not available.' }); return; }
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Length': String(raw.body.length),
+          'Content-Disposition': String(raw.headers['content-disposition'] ?? 'inline; filename="booking.pdf"'),
+          'Cache-Control': 'no-store',
+        });
+        res.end(raw.body);
+        return;
+      }
       const r = await lodgeOps(method, rest + query, { token, ip, body });
       if (r.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
       if (r.status === 401) vouched.delete(token);

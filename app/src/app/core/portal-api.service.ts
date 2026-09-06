@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { PortalCompany, PortalUser } from './portal-auth.service';
 
@@ -157,6 +157,13 @@ export class PortalApiService {
   availability(from: string, to: string): Observable<{ suites: Record<string, number | null> }> { return this.http.get<{ suites: Record<string, number | null> }>('/api/engine/availability', { params: this.params({ from, to }) }); }
   quote(body: { roomTypeIds: string[]; from: string; to: string; adults: number; children: number; infants: number }): Observable<Quote> { return this.http.post<Quote>('/api/engine/quote', body); }
   calendar(q: { roomTypeId: string; from: string; to: string; adults: number; children: number; infants: number }): Observable<SuiteCalendar> { return this.http.get<SuiteCalendar>('/api/engine/calendar', { params: this.params(q) }); }
+  /** THE GUEST BOOKING INFORMATION SHEET (Dave, 2026-09-06) as a PDF. Fetched
+   *  through HttpClient rather than linked with an <a href> because the relay
+   *  wants the session's Bearer token, which only the interceptor can add. */
+  sheet(kind: 'hold' | 'booking', id: string): Observable<HttpResponse<Blob>> {
+    return this.http.get(`/api/lo/${kind === 'hold' ? 'holds' : 'bookings'}/${id}/sheet`, { observe: 'response', responseType: 'blob' });
+  }
+
   /** THE OPERATOR'S OWN LOGO (Dave, 2026-09-06), set from the avatar in the
    *  command bar. An empty string clears it and puts the 7 Star mark back. */
   setLogo(logo: string): Observable<{ ok: true; logo: string | null }> {
