@@ -9,6 +9,17 @@ export type LoginAnswer =
   | { ok: true; token: string; user: PortalUser; company: PortalCompany; expiresAt: string }
   | { ok: false; message: string };
 
+/** The STO terms as this person stands with them. */
+export interface PortalTerms {
+  published: boolean;
+  /** They must accept before they can take a hold or make a booking. */
+  required: boolean;
+  version: number | null;
+  bodyHtml: string;
+  acceptedAt: string | null;
+  acceptedVersion: number | null;
+}
+
 /** What the set-password page knows before anybody types. */
 export interface ResetCheck {
   ok: boolean;
@@ -219,7 +230,11 @@ export class PortalApiService {
   setPasswordWithKey(key: string, password: string): Observable<LoginAnswer> {
     return this.http.post<LoginAnswer>('/api/auth/reset', { key, password });
   }
-  me(): Observable<{ user: PortalUser; company: PortalCompany }> { return this.http.get<{ user: PortalUser; company: PortalCompany }>('/api/lo/me'); }
+  me(): Observable<{ user: PortalUser; company: PortalCompany; terms?: PortalTerms }> { return this.http.get<{ user: PortalUser; company: PortalCompany; terms?: PortalTerms }>('/api/lo/me'); }
+  /** "I have read and agree…". The version agreed to is decided by Lodge Ops,
+   *  never sent from here — what a page claims to be agreeing to proves
+   *  nothing. */
+  acceptTerms(): Observable<PortalTerms> { return this.http.post<PortalTerms>('/api/lo/terms/accept', {}); }
   changePassword(current: string, next: string): Observable<{ ok: boolean; message?: string }> { return this.http.post<{ ok: boolean; message?: string }>('/api/lo/me/password', { current, next }); }
   summary(): Observable<Summary> { return this.http.get<Summary>('/api/lo/summary'); }
   // ---- Chat with 7 Star ----

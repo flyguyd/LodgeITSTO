@@ -5,6 +5,7 @@ import { PortalApiService } from './core/portal-api.service';
 import { PortalAuthService } from './core/portal-auth.service';
 import { PortalChatService } from './core/portal-chat.service';
 import { ChatPanelComponent } from './shared/chat-panel.component';
+import { TermsLightboxComponent } from './shared/terms-lightbox.component';
 
 /**
  * The STO portal shell (Dave, 2026-09-05): a PINNED COMMAND BAR along the
@@ -16,7 +17,7 @@ import { ChatPanelComponent } from './shared/chat-panel.component';
 @Component({
   selector: 'sto-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule, ChatPanelComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule, ChatPanelComponent, TermsLightboxComponent],
   template: `
     @if (auth.signedIn() && !onLogin()) {
       <header class="pb">
@@ -58,6 +59,10 @@ import { ChatPanelComponent } from './shared/chat-panel.component';
         </div>
       </header>
       <sto-chat-panel />
+      <!-- The terms, if this person still owes an acceptance (Dave,
+           2026-09-07). Inside the signed-in shell, so it cannot appear over
+           the sign-in card, and above everything else on the page. -->
+      <sto-terms-lightbox />
     }
     <main class="sto-main" [class.no-bar]="!auth.signedIn() || onLogin()">
       <router-outlet />
