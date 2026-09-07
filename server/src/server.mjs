@@ -213,6 +213,58 @@ async function session(token, ip) {
   return v;
 }
 
+// ---- suite photos, held in this process's memory ----------------------------
+// (Dave, 2026-09-07: "the STO site should cache the suite images to memory and
+// time out after 39 minutes".) A photo's id names those exact bytes for ever —
+// a replaced photo is a new row with a new id — so this cache can never serve
+// a stale picture. The 39 minutes is about MEMORY, not freshness: a lodge with
+// a large gallery should not pin every picture in this process for the life of
+// it. A photo belongs to the LODGE, not to an operator, so one entry serves
+// everyone and nothing operator-specific is kept here — only the id, the
+// content type and the bytes.
+//
+// A HIT STILL NEEDS A SESSION. On a miss the token is checked by Lodge Ops
+// answering the request; on a hit Lodge Ops is not asked at all, so the
+// session is checked here first, or a cached photo would be readable by
+// anyone who sent any token string at all.
+const PHOTO_TTL_MS = 39 * 60_000;
+const PHOTO_MAX_BYTES = 64 * 1024 * 1024;
+const photos = new Map(); // id → { at, used, type, body }
+let photoBytes = 0;
+
+function photoGet(id) {
+  const hit = photos.get(id);
+  if (!hit) return null;
+  if (Date.now() - hit.at >= PHOTO_TTL_MS) { photos.delete(id); photoBytes -= hit.body.length; return null; }
+  hit.used = Date.now();
+  return hit;
+}
+
+function photoPut(id, type, body) {
+  const had = photos.get(id);
+  if (had) photoBytes -= had.body.length;
+  photos.set(id, { at: Date.now(), used: Date.now(), type, body });
+  photoBytes += body.length;
+  photoSweep();
+  // Still over the cap after dropping what has timed out: let the
+  // least-recently-served go until it fits.
+  if (photoBytes > PHOTO_MAX_BYTES) {
+    for (const [k, v] of [...photos].sort((a, b) => a[1].used - b[1].used)) {
+      if (photoBytes <= PHOTO_MAX_BYTES) break;
+      photos.delete(k);
+      photoBytes -= v.body.length;
+    }
+  }
+}
+
+function photoSweep() {
+  const now = Date.now();
+  for (const [k, v] of photos) if (now - v.at >= PHOTO_TTL_MS) { photos.delete(k); photoBytes -= v.body.length; }
+}
+// Let the memory go even when nobody is asking, so "times out" is true of an
+// idle portal too, not only a busy one.
+setInterval(photoSweep, 5 * 60_000).unref();
+
 /**
  * THE ONLY WAY THIS PORTAL ASKS FOR RATES OR AVAILABILITY (Dave, 2026-09-05:
  * "The STO booking site must only query availability and rates using the STO
@@ -401,18 +453,33 @@ const server = createServer(async (req, res) => {
       // A SUITE PHOTO IS BYTES (Dave, 2026-09-07), like the booking sheet:
       // decoding it to utf8 the way every JSON answer is decoded would
       // corrupt it. Its id names those exact bytes for ever, so it is cached
-      // hard — the Guest Suites page asks for a dozen of them at once.
+      // hard at the browser AND held in this process's memory for 39 minutes
+      // (see the photo cache above) — the Guest Suites page asks for a dozen
+      // of them at once, and every operator asks for the same dozen.
       if (/^\/suites\/images\//.test(rest)) {
+        const sendPhoto = (type, body) => {
+          res.writeHead(200, {
+            'Content-Type': String(type ?? 'image/jpeg'),
+            'Content-Length': String(body.length),
+            'Cache-Control': 'private, max-age=31536000, immutable',
+          });
+          res.end(body);
+        };
+        const id = rest.slice(rest.lastIndexOf('/') + 1);
+        const hit = photoGet(id);
+        if (hit) {
+          // Lodge Ops is not being asked, so this token has to be checked here.
+          if (!(await session(token, ip))) { json(res, 401, { code: 'UNAUTHENTICATED', message: 'Please sign in again.' }); return; }
+          sendPhoto(hit.type, hit.body);
+          return;
+        }
         const raw = await lodgeOpsRaw('GET', rest + query, { token, ip });
         if (raw.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
         if (raw.status === 401) vouched.delete(token);
         if (raw.status !== 200) { json(res, raw.status, { code: 'NOT_FOUND', message: 'That photo is not available.' }); return; }
-        res.writeHead(200, {
-          'Content-Type': String(raw.headers['content-type'] ?? 'image/jpeg'),
-          'Content-Length': String(raw.body.length),
-          'Cache-Control': 'private, max-age=31536000, immutable',
-        });
-        res.end(raw.body);
+        const type = String(raw.headers['content-type'] ?? 'image/jpeg');
+        photoPut(id, type, raw.body);
+        sendPhoto(type, raw.body);
         return;
       }
       if (/\/sheet$/.test(rest)) {
