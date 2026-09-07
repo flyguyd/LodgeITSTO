@@ -357,7 +357,7 @@ async function heatmap(q) {
 // ---- the server ----------------------------------------------------------------
 // chat/* is "Chat with 7 Star" (Dave, 2026-09-06): the agent's own thread
 // with the lodge's desk, relayed like everything else — signed, with their token.
-const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert|sheet)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/(cancel|sheet)|chat\/(start|send|poll|typing|close))$/;
+const LO_ALLOW = /^\/(me|me\/password|me\/logo|summary|catalog|suites|suites\/images\/[0-9a-fA-F-]{36}|events\/search|price|holds|holds\/[A-Za-z0-9-]+|holds\/[A-Za-z0-9-]+\/(cancel|convert|sheet)|bookings|bookings\/[A-Za-z0-9-]+|bookings\/[A-Za-z0-9-]+\/(cancel|sheet)|chat\/(start|send|poll|typing|close))$/;
 const server = createServer(async (req, res) => {
   const url = req.url ?? '/';
   const method = (req.method ?? 'GET').toUpperCase();
@@ -398,6 +398,23 @@ const server = createServer(async (req, res) => {
       // THE BOOKING SHEET IS A PDF (Dave, 2026-09-06), so it goes through as
       // BYTES with its own content type — decoding it to utf8 like every other
       // answer would corrupt it.
+      // A SUITE PHOTO IS BYTES (Dave, 2026-09-07), like the booking sheet:
+      // decoding it to utf8 the way every JSON answer is decoded would
+      // corrupt it. Its id names those exact bytes for ever, so it is cached
+      // hard — the Guest Suites page asks for a dozen of them at once.
+      if (/^\/suites\/images\//.test(rest)) {
+        const raw = await lodgeOpsRaw('GET', rest + query, { token, ip });
+        if (raw.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
+        if (raw.status === 401) vouched.delete(token);
+        if (raw.status !== 200) { json(res, raw.status, { code: 'NOT_FOUND', message: 'That photo is not available.' }); return; }
+        res.writeHead(200, {
+          'Content-Type': String(raw.headers['content-type'] ?? 'image/jpeg'),
+          'Content-Length': String(raw.body.length),
+          'Cache-Control': 'private, max-age=31536000, immutable',
+        });
+        res.end(raw.body);
+        return;
+      }
       if (/\/sheet$/.test(rest)) {
         const raw = await lodgeOpsRaw('GET', rest + query, { token, ip });
         if (raw.status === 0) { json(res, 503, { code: 'UNAVAILABLE', message: 'Lodge Ops did not respond — please try again shortly.' }); return; }

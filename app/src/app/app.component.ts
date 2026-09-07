@@ -35,6 +35,7 @@ import { ChatPanelComponent } from './shared/chat-panel.component';
         <nav class="pb-nav">
           <a routerLink="/" routerLinkActive="on" [routerLinkActiveOptions]="{ exact: true }">Home</a>
           <a routerLink="/new" routerLinkActive="on">New booking</a>
+          <a routerLink="/suites" routerLinkActive="on">Guest suites</a>
           <a routerLink="/holds" routerLinkActive="on">Holds</a>
           <a routerLink="/bookings" routerLinkActive="on">Bookings</a>
         </nav>

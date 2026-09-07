@@ -52,6 +52,31 @@ export interface Quote {
 }
 export interface CalendarDay { free: number | null; rates: Record<string, number | null>; cheapest: number | null; rack?: number | null; closedToArrival: boolean; }
 export interface SuiteCalendar { ok: boolean; roomTypeId: string; from: string; to: string; currency: string; plans: { id: string; name: string }[]; days: Record<string, CalendarDay>; }
+/** A guest suite as the portal shows it — Lodge Ops' own Guest Suites content. */
+export interface PortalSuite {
+  id: string;
+  name: string;
+  sortOrder: number;
+  description: string | null;
+  pool: string | null;
+  style: string | null;
+  roomCount: number;
+  unitsTotal: number | null;
+  includedAdults: number | null;
+  includedChildren: number | null;
+  includedInfants: number | null;
+  maxAdults: number | null;
+  maxChildren: number | null;
+  maxInfants: number | null;
+  maxTotalGuests: number | null;
+  extraAdultCost: number | null;
+  extraChildCost: number | null;
+  extraInfantCost: number | null;
+  amenities: string[];
+  /** Image ids, hero first; fetch each from suiteImageUrl(). */
+  photos: string[];
+}
+
 export interface StayInput {
   from: string; to: string; adults: number; children: number; infants: number; planId: string;
   lines: { roomTypeId: string; units: number }[];
@@ -174,6 +199,18 @@ export class PortalApiService {
   chatPoll(token: string, since?: string | null): Observable<ChatView> { return this.http.post<ChatView>('/api/lo/chat/poll', since ? { token, since } : { token }); }
   chatTyping(token: string, typing: boolean): Observable<{ ok: true }> { return this.http.post<{ ok: true }>('/api/lo/chat/typing', { token, typing }); }
   chatClose(token: string): Observable<{ ok: true }> { return this.http.post<{ ok: true }>('/api/lo/chat/close', { token }); }
+  suites(): Observable<{ currency: string; discountPct: number; suites: PortalSuite[] }> {
+    return this.http.get<{ currency: string; discountPct: number; suites: PortalSuite[] }>('/api/lo/suites');
+  }
+  /** A suite photo's BYTES, by the id the suites answer carries. Fetched
+   *  through HttpClient rather than pointed at with a plain <img src> for the
+   *  same reason as the booking sheet: the relay wants the session's Bearer
+   *  token and only the interceptor can add it. The id names those exact bytes
+   *  for ever, so the answer is immutable and the caller holds one object URL
+   *  per id instead of asking twice. */
+  suiteImage(imageId: string): Observable<Blob> {
+    return this.http.get(`/api/lo/suites/images/${encodeURIComponent(imageId)}`, { responseType: 'blob' });
+  }
   catalog(): Observable<Catalog> { return this.http.get<Catalog>('/api/lo/catalog'); }
   availability(from: string, to: string): Observable<{ suites: Record<string, number | null> }> { return this.http.get<{ suites: Record<string, number | null> }>('/api/engine/availability', { params: this.params({ from, to }) }); }
   quote(body: { roomTypeIds: string[]; from: string; to: string; adults: number; children: number; infants: number }): Observable<Quote> { return this.http.post<Quote>('/api/engine/quote', body); }

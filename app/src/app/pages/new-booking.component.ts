@@ -2,25 +2,17 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { CalendarDay, Catalog, PortalApiService, Quote, StayInput, SuiteCalendar, money, refundLabel } from '../core/portal-api.service';
+import { Catalog, PortalApiService, Quote, StayInput, money, refundLabel } from '../core/portal-api.service';
 import { PortalAuthService } from '../core/portal-auth.service';
 import { countryFlagSrc, countryOptions } from '../shared/countries';
+import { RateCalendarComponent, addMonths } from '../shared/rate-calendar.component';
 
 /** A date the heat map may hand this page in the URL. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const plusDays = (from: string, n: number) => { const d = new Date(`${from}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
-const addMonths = (month: string, n: number) => { const d = new Date(`${month}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); };
-const monthLabel = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-const calMoney = (v: number, currency: string) => (currency === 'ZAR' || !currency ? 'R' : currency + ' ') + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-interface CalCell { date: string; num: number; day: CalendarDay | null; stay: boolean; past: boolean; rate: string; freeText: string; title: string;
-  /** While a new stay is being clicked out, the nights the pointer covers. */
-  pick: boolean; pickStart: boolean;
-  /** The channel's own nightly, struck through beneath the operator's. */
-  rack: string;
-}
 interface SuiteLine { roomTypeId: string; units: number; }
 
 /**
@@ -36,7 +28,7 @@ interface SuiteLine { roomTypeId: string; units: number; }
   selector: 'sto-new-booking',
   host: { '(document:keydown.escape)': 'onEscape()' },
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, RateCalendarComponent],
   template: `
     <section class="nb-page">
       <header class="nb-head">
@@ -193,42 +185,17 @@ interface SuiteLine { roomTypeId: string; units: number; }
     }
 
     @if (calOpen(); as cal) {
-      <div class="nb-cal-backdrop" (click)="closeCalendar()">
-        <div class="nb-cal-panel" role="dialog" aria-modal="true" aria-label="Availability and rates" (click)="$event.stopPropagation()">
-          <header class="nb-cal-head">
-            <div>
-              <h2>{{ suiteOf(cal.roomTypeId)?.name || 'Suite' }} — availability and rates</h2>
-              <p class="nb-dim">Free units and your nightly rate ({{ discountPct() }}% off the published figure, VAT in) for {{ adults() }} {{ adults() === 1 ? 'adult' : 'adults' }}{{ children() ? ', ' + children() + (children() === 1 ? ' child' : ' children') : '' }}. @if (calPlanName(); as pn) { Plan: <b>{{ pn }}</b>. } @else { The cheapest plan each night. } The requested nights are outlined in gold.</p>
-              <p class="nb-cal-hint">{{ calPick() ? 'Now click the CHECK-OUT day — the day the guest leaves.' : 'Click a day to move the stay: check-in, then check-out.' }}</p>
-            </div>
-            <button type="button" class="nb-cal-close" (click)="closeCalendar()" aria-label="Close">✕</button>
-          </header>
-          <div class="nb-cal-nav">
-            <button type="button" class="oa-btn" (click)="shiftCalendar(-1)" aria-label="Earlier month">‹</button>
-            <span class="nb-dim">{{ calRangeLabel() }}</span>
-            <button type="button" class="oa-btn" (click)="shiftCalendar(1)" aria-label="Later month">›</button>
-          </div>
-          @if (calError(); as e) { <p class="nb-err">{{ e }}</p> }
-          <div class="nb-cal-months" [class.nb-cal-loading]="calLoading()">
-            @for (m of calMonths(); track m.key) {
-              <div class="nb-cal-month">
-                <h3>{{ m.label }}</h3>
-                <div class="nb-cal-grid">
-                  @for (d of DOW; track d) { <span class="nb-cal-dow">{{ d }}</span> }
-                  @for (c of m.cells; track $index) {
-                    @if (c) {
-                      <button type="button" class="nb-cal-day" [class.stay]="c.stay" [class.pick]="c.pick" [class.pick-start]="c.pickStart" [class.soldout]="c.day?.free === 0" [class.unknown]="!c.day || c.day.free == null" [class.past]="c.past" [disabled]="c.past" [attr.data-date]="c.date" [title]="c.title" (click)="pickDay(c)" (mouseenter)="calHover.set(c.date)">
-                        <span class="nb-cal-num">{{ c.num }}</span>
-                        @if (c.day && !c.past) { <span class="nb-cal-rate">{{ c.rate }}</span>@if (c.rack) { <span class="nb-cal-rack">{{ c.rack }}</span> }<span class="nb-cal-free">{{ c.freeText }}</span> }
-                      </button>
-                    } @else { <div class="nb-cal-day nb-cal-blank"></div> }
-                  }
-                </div>
-              </div>
-            }
-          </div>
-        </div>
-      </div>
+      <sto-rate-calendar
+        [roomTypeId]="cal.roomTypeId"
+        [suiteName]="suiteName(cal.roomTypeId)"
+        [adults]="adults()" [children]="children()" [infants]="infants()"
+        [planId]="planId()" [planName]="calPlanName()" [note]="calNote()"
+        [currency]="catalog()?.currency || 'ZAR'"
+        [stay]="{ from: from(), to: to() }"
+        [startMonth]="cal.month"
+        [pickable]="true"
+        (picked)="onCalPicked($event)"
+        (closed)="closeCalendar()" />
     }
   `,
   styles: [
@@ -294,7 +261,6 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-plan-off { text-decoration: none; margin-left: 5px; }
       .nb-rack { display: block; font-size: 11.5px; font-weight: 400; color: var(--oa-text-dim); margin-top: 2px; }
       .nb-rack s { text-decoration: line-through; }
-      .nb-cal-rack { font-size: 10.5px; color: var(--oa-text-dim); text-decoration: line-through; }
       .nb-plan-refund { font-size: 12px; color: #705003; }
       .nb-plan-note { font-size: 12px; color: var(--oa-text-dim); }
       .nb-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--oa-border); border-radius: var(--oa-radius); background: var(--oa-surface-2); }
@@ -305,36 +271,8 @@ interface SuiteLine { roomTypeId: string; units: number; }
       .nb-spacer { flex: 1 1 auto; }
       .nb-cal-btn { flex: 0 0 auto; margin-bottom: 12px; padding: 6px 9px; display: inline-flex; align-items: center; color: #8a6d2f; }
       .nb-cal-btn:disabled { opacity: 0.45; }
-      .nb-cal-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 10, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1200; padding: 16px; }
-      .nb-cal-panel { background: var(--oa-surface); border: 1px solid var(--oa-border); border-radius: var(--oa-radius); width: min(980px, 100%); max-height: 92vh; overflow: auto; padding: 16px 18px 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); }
-      .nb-cal-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
-      .nb-cal-head h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
-      .nb-cal-head p { margin: 0; max-width: 80ch; }
-      .nb-cal-close { margin-left: auto; border: 0; background: transparent; font-size: 18px; cursor: pointer; color: var(--oa-text-dim); padding: 2px 6px; }
-      .nb-cal-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 10px; }
-      .nb-cal-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 18px; transition: opacity 0.15s; }
-      .nb-cal-loading { opacity: 0.5; }
-      .nb-cal-month h3 { margin: 0 0 6px; font-size: 14px; font-weight: 650; text-align: center; }
-      .nb-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
-      .nb-cal-dow { text-align: center; font-size: 11px; color: var(--oa-text-dim); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
       /* The day cells are BUTTONS now (the stay is clicked out on them), so
          they reset the browser's button styling back to the card look. */
-      .nb-cal-day { min-height: 58px; border: 1px solid var(--oa-border); border-radius: 6px; padding: 4px 5px; display: flex; flex-direction: column; gap: 1px; background: var(--oa-surface-2); font-variant-numeric: tabular-nums; font: inherit; color: inherit; text-align: left; align-items: stretch; cursor: pointer; }
-      .nb-cal-day:hover:not(:disabled) { border-color: #8a6d2f; }
-      .nb-cal-day:disabled { cursor: default; }
-      .nb-cal-blank { cursor: default; }
-      .nb-cal-blank { border-color: transparent; background: transparent; }
-      .nb-cal-num { font-size: 12px; font-weight: 600; }
-      .nb-cal-rate { font-size: 12.5px; }
-      .nb-cal-free { font-size: 11px; color: #2f6b3a; }
-      .nb-cal-day.soldout { background: #f1ebe2; color: var(--oa-text-dim); }
-      .nb-cal-day.soldout .nb-cal-rate { text-decoration: line-through; }
-      .nb-cal-day.soldout .nb-cal-free { color: #9a3b2e; }
-      .nb-cal-day.past { opacity: 0.4; }
-      .nb-cal-day.stay { border-color: #c8a45f; box-shadow: inset 0 0 0 1.5px #c8a45f; background: #fbf5e6; }
-      .nb-cal-day.pick { border-color: #8a6d2f; box-shadow: inset 0 0 0 2px #8a6d2f; background: #f6ecd4; }
-      .nb-cal-day.pick-start { box-shadow: inset 0 0 0 2.5px #8a6d2f; }
-      .nb-cal-hint { margin: 6px 0 0; font-size: 12.5px; color: #705003; }
     `,
   ],
 })
@@ -343,7 +281,6 @@ export class NewBookingComponent implements OnInit {
   private readonly auth = inject(PortalAuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  readonly DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   readonly catalog = signal<Catalog | null>(null);
   readonly catalogError = signal('');
   readonly lines = signal<SuiteLine[]>([{ roomTypeId: '', units: 1 }]);
@@ -375,16 +312,10 @@ export class NewBookingComponent implements OnInit {
   readonly calOpen = signal<{ roomTypeId: string; month: string } | null>(null);
   /** WHAT THIS RATE INCLUDES (Dave, 2026-09-06): the open inclusions modal. */
   readonly incOpen = signal<{ planName: string; suites: { roomTypeId: string; name: string; included: string[]; excluded: string[] }[] } | null>(null);
-  readonly calData = signal<SuiteCalendar | null>(null);
-  readonly calLoading = signal(false);
-  readonly calError = signal('');
   /** CLICK-TO-PICK (Dave, 2026-09-06): the first night clicked while a new
    *  stay is being chosen, and the night the pointer is over. */
-  readonly calPick = signal('');
-  readonly calHover = signal('');
   private quoteSeq = 0;
   private availSeq = 0;
-  private calSeq = 0;
 
   readonly discountPct = computed(() => this.catalog()?.discountPct ?? this.auth.company()?.discountPct ?? 0);
   readonly holdHours = computed(() => this.catalog()?.holdHours ?? this.auth.company()?.holdHours ?? 48);
@@ -422,7 +353,15 @@ export class NewBookingComponent implements OnInit {
       this.to.set(qTo);
     }
     this.api.catalog().subscribe({
-      next: (c) => { this.catalog.set(c); if (c.suites.length === 1) this.setLine(0, 'roomTypeId', c.suites[0].id); this.refreshAvailability(); },
+      next: (c) => {
+        this.catalog.set(c);
+        // ?suite= comes from the Guest Suites page's "Book this suite"
+        // (2026-09-07); a single-suite lodge lands on its one suite anyway.
+        const wanted = String(q.get('suite') ?? '');
+        if (wanted && c.suites.some((x) => x.id === wanted)) this.setLine(0, 'roomTypeId', wanted);
+        else if (c.suites.length === 1) this.setLine(0, 'roomTypeId', c.suites[0].id);
+        this.refreshAvailability();
+      },
       error: (e) => this.catalogError.set(e?.error?.message ?? 'The lodge could not be reached.'),
     });
   }
@@ -612,35 +551,31 @@ export class NewBookingComponent implements OnInit {
     this.closeCalendar();
   }
 
-  openCalendar(roomTypeId: string): void { if (!roomTypeId || this.nights() <= 0) return; this.calOpen.set({ roomTypeId, month: this.centredMonth() }); this.loadCalendar(); }
-  closeCalendar(): void { this.calOpen.set(null); this.calData.set(null); this.calError.set(''); this.calPick.set(''); this.calHover.set(''); }
+  openCalendar(roomTypeId: string): void { if (!roomTypeId || this.nights() <= 0) return; this.calOpen.set({ roomTypeId, month: this.centredMonth() }); }
+  closeCalendar(): void { this.calOpen.set(null); }
+  suiteName(roomTypeId: string): string { return this.catalog()?.suites.find((x) => x.id === roomTypeId)?.name ?? ''; }
+  calPlanName(): string { const id = this.planId(); return id ? (this.quote()?.plans.find((p) => p.id === id)?.name ?? '') : ''; }
+  /** The one thing the shared calendar cannot know: whose figures these are.
+   *  Every rate on it is already this operator's, discount applied, VAT in. */
+  calNote(): string {
+    const party = `${this.adults()} ${this.adults() === 1 ? 'adult' : 'adults'}${this.children() ? `, ${this.children()} ${this.children() === 1 ? 'child' : 'children'}` : ''}`;
+    const off = this.discountPct() > 0 ? `${this.discountPct()}% off the published figure, VAT in` : 'VAT in';
+    return `Free units and your nightly rate (${off}) for ${party}. ${this.calPlanName() ? `Plan: ${this.calPlanName()}.` : 'The cheapest plan each night.'} The requested nights are outlined in gold.`;
+  }
+
   /**
-   * CLICK THE STAY OUT ON THE CALENDAR (Dave, 2026-09-06: "allow the user to
-   * adjust the search date by clicking on a day moving to another day and
-   * clicking again"). THE TWO CLICKED DAYS ARE THE DATES THEMSELVES (Dave,
-   * 2026-09-06): the earlier one is check-IN, the later one is check-OUT,
-   * whichever order they are clicked in. The nights outlined are therefore
-   * check-in up to the day BEFORE check-out — the nights that are paid for.
-   * Clicking the same day twice cannot be a stay, so it is ignored and the
-   * page keeps waiting for a check-out day.
+   * The calendar handed back a stay (check-in, check-out). Take it, close the
+   * calendar — the price card underneath is what the eye lands on next — and
+   * requote. Reopen the calendar to change the dates again.
    */
-  pickDay(c: CalCell): void {
-    if (c.past) return;
-    const first = this.calPick();
-    if (!first) { this.calPick.set(c.date); this.calHover.set(c.date); return; }
-    if (first === c.date) return;
-    const lo = first < c.date ? first : c.date;
-    const hi = first < c.date ? c.date : first;
-    this.calPick.set(''); this.calHover.set('');
-    this.from.set(lo);
-    this.to.set(hi);
-    // THE CHECK-OUT CLICK FINISHES THE JOB (Dave, 2026-09-06): the calendar
-    // closes on it, so the price card underneath is what the eye lands on
-    // next. Reopen it to change the dates.
+  onCalPicked(range: { from: string; to: string }): void {
+    this.from.set(range.from);
+    this.to.set(range.to);
     this.closeCalendar();
     this.requote();
   }
-  shiftCalendar(by: number): void { const cal = this.calOpen(); if (!cal) return; this.calOpen.set({ ...cal, month: addMonths(cal.month, by) }); this.loadCalendar(); }
+
+  /** Which month to open on: the one whose two-month window best straddles the stay. */
   private centredMonth(): string {
     const from = this.from();
     const mid = (Date.parse(`${from}T00:00:00Z`) + Date.parse(`${this.to()}T00:00:00Z`)) / 2;
@@ -648,50 +583,5 @@ export class NewBookingComponent implements OnInit {
     const centreOf = (first: string) => (Date.parse(`${first}-01T00:00:00Z`) + Date.parse(`${addMonths(first, 2)}-01T00:00:00Z`)) / 2;
     const prev = addMonths(m, -1);
     return Math.abs(centreOf(prev) - mid) < Math.abs(centreOf(m) - mid) ? prev : m;
-  }
-  private loadCalendar(): void {
-    const cal = this.calOpen();
-    if (!cal) return;
-    const seq = ++this.calSeq;
-    this.calLoading.set(true); this.calError.set('');
-    this.api.calendar({ roomTypeId: cal.roomTypeId, from: `${cal.month}-01`, to: `${addMonths(cal.month, 2)}-01`, adults: this.adults(), children: this.children(), infants: this.infants() }).subscribe({
-      next: (c) => { if (seq !== this.calSeq) return; this.calData.set(c); this.calLoading.set(false); },
-      error: (e) => { if (seq !== this.calSeq) return; this.calLoading.set(false); this.calError.set(e?.error?.message ?? 'The calendar could not be loaded.'); },
-    });
-  }
-  calPlanName(): string { const id = this.planId(); return id ? (this.calData()?.plans.find((p) => p.id === id)?.name ?? this.quote()?.plans.find((p) => p.id === id)?.name ?? '') : ''; }
-  calRangeLabel(): string { const cal = this.calOpen(); return cal ? `${monthLabel(cal.month)} – ${monthLabel(addMonths(cal.month, 1))}` : ''; }
-  calMonths(): { key: string; label: string; cells: (CalCell | null)[] }[] {
-    const cal = this.calOpen();
-    if (!cal) return [];
-    const data = this.calData(), today = iso(new Date()), from = this.from(), to = this.to(), planId = this.planId();
-    const currency = data?.currency || this.catalog()?.currency || 'ZAR';
-    // The provisional range while the stay is being clicked out: the first
-    // night and wherever the pointer is, in either order.
-    // The pointer's day would be CHECK-OUT, so the nights previewed stop the
-    // day before it; with only one click the clicked day stands alone.
-    const pick = this.calPick(), over = this.calHover() || pick;
-    const pickLo = pick ? (pick <= over ? pick : over) : '';
-    const pickEnd = pick ? (pick <= over ? over : pick) : '';
-    const pickHi = pickEnd && pickEnd > pickLo ? plusDays(pickEnd, -1) : pickEnd;
-    return [cal.month, addMonths(cal.month, 1)].map((m) => {
-      const first = new Date(`${m}-01T00:00:00Z`);
-      const lead = (first.getUTCDay() + 6) % 7;
-      const cells: (CalCell | null)[] = Array.from({ length: lead }, () => null);
-      const days = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
-      for (let n = 1; n <= days; n++) {
-        const date = `${m}-${String(n).padStart(2, '0')}`;
-        const day = data?.days?.[date] ?? null;
-        // The figure the server sends IS this operator's — the rate engine
-        // applied the discount after the channel's last rule. Discounting it
-        // again here would take it off twice.
-        const rate = day ? (planId && day.rates[planId] != null ? day.rates[planId] : day.cheapest) : null;
-        const rackRate = day?.rack ?? null;
-        const inPick = !!pickLo && date >= pickLo && date <= pickHi;
-        cells.push({ date, num: n, day, stay: date >= from && date < to, past: date < today, pick: inPick, pickStart: date === pick, rate: rate != null ? calMoney(rate, currency) : day ? '—' : '', rack: rackRate != null && rate != null && rackRate > rate ? calMoney(rackRate, currency) : '', freeText: day ? (day.free == null ? 'not known' : day.free === 0 ? 'none free' : `${day.free} free`) : '', title: day ? `${date}: ${day.free == null ? 'availability not known' : day.free + ' unit(s) free'}${rate != null ? ', ' + money(rate, currency) + ' per night for you' : ''}` : date });
-      }
-      while (cells.length % 7) cells.push(null);
-      return { key: m, label: monthLabel(m), cells };
-    });
   }
 }
