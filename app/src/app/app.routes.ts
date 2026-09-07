@@ -3,6 +3,9 @@ import { signedInGuard } from './core/auth.guard';
 
 export const routes: Routes = [
   { path: 'login', loadComponent: () => import('./pages/login.component').then((m) => m.LoginComponent) },
+  // Where an invitation or a password-reset link lands (Dave, 2026-09-07).
+  // No guard: nobody has a session yet — that is the whole point of the key.
+  { path: 'set-password', loadComponent: () => import('./pages/set-password.component').then((m) => m.SetPasswordComponent) },
   { path: '', canActivate: [signedInGuard], loadComponent: () => import('./pages/home.component').then((m) => m.HomeComponent) },
   { path: 'new', canActivate: [signedInGuard], loadComponent: () => import('./pages/new-booking.component').then((m) => m.NewBookingComponent) },
   // Guest suites: a card each, a light box with the detail and two months of

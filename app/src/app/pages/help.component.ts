@@ -35,8 +35,8 @@ interface HelpSection { id: string; title: string }
           <p>The portal is your operator's own window onto the lodge's diary. It shows what is free, prices every stay at <b>your operator's contracted rate</b>, and lets you hold or book suites directly on the lodge's booking engine — the same engine the lodge's own website sells from, so what you see is what the lodge sees.</p>
           <h3>Signing in</h3>
           <ul>
-            <li>The lodge creates your account and sends your e-mail address and first password. There is no self-registration — ask the lodge if you need an account.</li>
-            <li>Sign in with that e-mail and password. A wrong password says so and lets you try again; <b>eight wrong passwords in a row lock the account for a while</b>.</li>
+            <li>The lodge creates your account and e-mails you an <b>invitation</b> — a one-time link where you choose your own password and are signed straight in. Nobody at the lodge ever knows it. The link works once and expires after seven days; if yours has gone stale, use <b>Forgot my password</b> on the sign-in card and a fresh one is sent. There is no self-registration — ask the lodge if you need an account.</li>
+            <li>Sign in with that e-mail and the password you chose. A wrong one says so and lets you try again; <b>eight wrong passwords in a row lock the account for a while</b>. Forgotten it? <b>Forgot my password</b> on the sign-in card e-mails a link to choose a new one, good for two hours. For your safety the page says the same thing whether or not the address has an account, so read it as “if there is an account, look in your inbox”.</li>
             <li>Your session lasts for the number of hours the lodge sets (typically a working day) and then asks you to sign in again. Signing out from the <b>Sign out</b> button ends it at once.</li>
             <li>If the lodge deactivates your account or your operator, the portal signs you out immediately and will not sign you in again until it is reactivated.</li>
           </ul>
@@ -132,9 +132,9 @@ interface HelpSection { id: string; title: string }
         <section id="account" class="hp-sec">
           <h2>7. Your account and your logo</h2>
           <ul>
-            <li><b>Account</b> shows who you are signed in as and changes your password (10 characters or more; the current one is required). Changing it signs out your other sessions.</li>
+            <li><b>Account</b> shows who you are signed in as and changes your password (at least 8 characters with upper case, lower case and a number; the current one is required). Changing it signs out your other sessions.</li>
             <li><b>Your logo</b> — click the round mark at the top left of the command bar and choose a picture (PNG, JPEG or WebP). It is fitted into the mark for everyone at your operator and printed at the top of every Guest booking information sheet. <b>Remove logo</b> beside Account takes it off again.</li>
-            <li>Forgotten password, a new colleague, a change of e-mail: the lodge manages accounts — ask them, or use the chat.</li>
+            <li>Forgotten your password? Use <b>Forgot my password</b> on the sign-in card. A new colleague or a change of e-mail: the lodge manages accounts — ask them, or use the chat.</li>
           </ul>
         </section>
 

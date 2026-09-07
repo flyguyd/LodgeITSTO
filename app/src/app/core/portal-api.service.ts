@@ -3,6 +3,22 @@ import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { PortalCompany, PortalUser } from './portal-auth.service';
 
+/** Signing in, and setting a password from an invitation or reset key, answer
+ *  with the same thing: a session, or the one sentence to show. */
+export type LoginAnswer =
+  | { ok: true; token: string; user: PortalUser; company: PortalCompany; expiresAt: string }
+  | { ok: false; message: string };
+
+/** What the set-password page knows before anybody types. */
+export interface ResetCheck {
+  ok: boolean;
+  name?: string;
+  email?: string;
+  company?: string;
+  kind?: 'invite' | 'reset';
+  message?: string;
+}
+
 export interface Catalog {
   currency: string;
   suites: { id: string; name: string; maxTotalGuests: number | null; maxAdults: number | null; roomCount: number; unitsTotal: number | null }[];
@@ -187,8 +203,21 @@ export class PortalApiService {
     return p;
   }
 
-  login(email: string, password: string): Observable<{ ok: true; token: string; user: PortalUser; company: PortalCompany; expiresAt: string } | { ok: false; message: string }> {
-    return this.http.post<{ ok: true; token: string; user: PortalUser; company: PortalCompany; expiresAt: string } | { ok: false; message: string }>('/api/auth/login', { email, password });
+  login(email: string, password: string): Observable<LoginAnswer> {
+    return this.http.post<LoginAnswer>('/api/auth/login', { email, password });
+  }
+  /** "Forgot my password". The answer never varies, so neither does the page:
+   *  it says the same thing whether or not the address is one of ours. */
+  forgotPassword(email: string): Observable<{ ok: true; message: string }> {
+    return this.http.post<{ ok: true; message: string }>('/api/auth/forgot', { email });
+  }
+  /** Whose invitation / reset key this is, before anybody types a password. */
+  checkResetKey(key: string): Observable<ResetCheck> {
+    return this.http.post<ResetCheck>('/api/auth/reset-check', { key });
+  }
+  /** Choose the password the key was handed out for — and be signed in. */
+  setPasswordWithKey(key: string, password: string): Observable<LoginAnswer> {
+    return this.http.post<LoginAnswer>('/api/auth/reset', { key, password });
   }
   me(): Observable<{ user: PortalUser; company: PortalCompany }> { return this.http.get<{ user: PortalUser; company: PortalCompany }>('/api/lo/me'); }
   changePassword(current: string, next: string): Observable<{ ok: boolean; message?: string }> { return this.http.post<{ ok: boolean; message?: string }>('/api/lo/me/password', { current, next }); }

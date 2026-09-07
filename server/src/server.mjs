@@ -435,11 +435,51 @@ const server = createServer(async (req, res) => {
       const cap = clean === '/api/lo/me/logo' ? 1024 * 1024 : MAX_BODY;
       try { const raw = await readBody(req, cap); body = raw ? JSON.parse(raw) : {}; } catch { json(res, 400, { code: 'BAD_BODY', message: `The request body must be JSON under ${Math.round(cap / 1024)} KB.` }); return; }
     }
-    // sign in — the one call without a token
+    // sign in — the first of the four calls made without a session
     if (clean === '/api/auth/login' && method === 'POST') {
       const r = await lodgeOps('POST', '/auth/login', { ip, body: { email: body?.email, password: body?.password } });
       if (r.status === 0) { json(res, 503, { ok: false, message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
       json(res, r.status === 200 ? 200 : r.status, r.json ?? { ok: false, message: 'Sign-in failed.' });
+      return;
+    }
+    // ---- the other three calls made BEFORE anybody has signed in ----------
+    // (Dave, 2026-09-07: the invitation link, and "forgot my password".)
+    // All three are relayed signed with the portal key, like every other call;
+    // none of them takes or needs a session, and none of them says whether an
+    // address is one of ours — Lodge Ops answers the same way regardless.
+    if (clean === '/api/auth/forgot' && method === 'POST') {
+      const r = await lodgeOps('POST', '/auth/forgot', { ip, body: { email: body?.email } });
+      // Even Lodge Ops being away must not read as "no such account": the
+      // page says the same thing either way.
+      json(res, 200, r.status === 200 && r.json ? r.json : { ok: true, message: 'If that address has a portal account, a reset link is on its way. It expires in two hours.' });
+      return;
+    }
+    if (clean === '/api/auth/reset-check' && method === 'POST') {
+      const r = await lodgeOps('POST', '/auth/reset-check', { ip, body: { key: body?.key } });
+      if (r.status === 0) { json(res, 503, { ok: false, message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
+      json(res, r.status === 200 ? 200 : r.status, r.json ?? { ok: false, message: 'That link could not be checked.' });
+      return;
+    }
+    if (clean === '/api/auth/reset' && method === 'POST') {
+      const r = await lodgeOps('POST', '/auth/reset', { ip, body: { key: body?.key, password: body?.password } });
+      if (r.status === 0) { json(res, 503, { ok: false, message: 'Lodge Ops did not respond — please try again shortly.' }); return; }
+      json(res, r.status === 200 ? 200 : r.status, r.json ?? { ok: false, message: 'That password could not be set.' });
+      return;
+    }
+    // THE LODGE'S LOGO on the sign-in page (Dave, 2026-09-07). No session —
+    // nobody has one yet — so it is fetched with the portal key alone and
+    // passed through as bytes. Short cache: unlike a suite photo this is one
+    // picture that is replaced in place, so a new logo should appear the same
+    // day rather than when the process restarts.
+    if (clean === '/api/branding/logo' && method === 'GET') {
+      const raw = await lodgeOpsRaw('GET', '/logo', { ip });
+      if (raw.status !== 200) { json(res, raw.status === 0 ? 503 : 404, { code: 'NOT_FOUND', message: 'No logo.' }); return; }
+      res.writeHead(200, {
+        'Content-Type': String(raw.headers['content-type'] ?? 'image/png'),
+        'Content-Length': String(raw.body.length),
+        'Cache-Control': 'public, max-age=300',
+      });
+      res.end(raw.body);
       return;
     }
     // everything else needs a session
